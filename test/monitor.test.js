@@ -92,7 +92,7 @@ test('confirmed outage opens one incident, alerts once, closes on recovery with 
   assert.equal(t.sent.length, 4);
   assert.match(t.sent[2].msg.title, /UP again/);
   // 10 min of check intervals + 2×(2 retries × 20 s) spent confirming = 11 min 20 s
-  assert.match(t.sent[2].msg.text, /after 11 min/);
+  assert.match(t.sent[2].msg.text, /after 11\smin/);
 });
 
 test('uptime % for a site with one 30-minute outage in a day', async () => {

@@ -109,6 +109,19 @@ export function generateReport(db, clientId, period, now = Date.now()) {
   return get(db, 'SELECT * FROM reports WHERE id = ?', Number(res.lastInsertRowid));
 }
 
+/**
+ * Logo URL for e-mails. Mail clients block data: images and most do not show SVG, so only a raster
+ * logo (served from /brand/logo) or an https:// logo is used; otherwise the agency name is shown.
+ */
+export function emailLogoUrl(settings) {
+  const logo = String(settings.agency.logo || '');
+  const base = (settings.publicUrl || '').replace(/\/+$/, '');
+  if (/^https:\/\//i.test(logo) && !/\.svg(\?|#|$)/i.test(logo)) return logo;
+  const m = /^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.exec(logo);
+  if (!m || !base) return '';
+  return `${base}/brand/logo?v=${crypto.createHash('sha256').update(logo).digest('hex').slice(0, 10)}`;
+}
+
 export function reportUrl(settings, report) {
   const base = (settings.publicUrl || '').replace(/\/+$/, '');
   return `${base}/r/${report.token}`;
@@ -129,7 +142,7 @@ export async function sendReport(db, reportId, { mailer, pdf, renderHtml }, now 
   const lang = client.lang;
   const link = reportUrl(settings, report);
   const subject = t(lang, 'email.subject', { agency: settings.agency.name, month: formatMonth(lang, report.period) });
-  const html = renderReportEmail({ data, report, link, lang });
+  const html = renderReportEmail({ data, report, link, lang, logoUrl: emailLogoUrl(settings) });
   const text = [
     t(lang, 'email.hello', { client: client.name }),
     '',

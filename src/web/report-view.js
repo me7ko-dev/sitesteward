@@ -247,7 +247,7 @@ export function renderReportPage({ data, report, lang, pdfAvailable = false }) {
 }
 
 /** E-mail body: table layout + inline styles so it renders in common mail clients. */
-export function renderReportEmail({ data, report, link, lang }) {
+export function renderReportEmail({ data, report, link, lang, logoUrl = '' }) {
   const brand = safeColor(data.agency.color, '#4f46e5');
   const on = onColor(brand);
   const s = data.summary;
@@ -255,11 +255,13 @@ export function renderReportEmail({ data, report, link, lang }) {
   const cell = (label, value) => html`<td style="padding:14px 10px;text-align:center;border:1px solid #e5e7eb;border-radius:10px;">
     <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">${label}</div>
     <div style="font-size:22px;font-weight:700;color:#111827;margin-top:4px;">${value}</div></td>`;
-  return html`<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+  return html`<!doctype html><html lang="${localeOf(lang).split('-')[0]}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${t(lang, 'report.docTitle', { client: data.client.name, month })}</title></head><body style="margin:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;"><tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;">
 <tr><td style="background:${brand};color:${on};padding:28px 32px;">
-  <div style="font-size:14px;font-weight:bold;opacity:.9;">${data.agency.name}</div>
+  ${logoUrl
+    ? html`<img src="${logoUrl}" alt="${data.agency.name}" height="36" style="display:block;height:36px;max-width:200px;background:#ffffff;border-radius:8px;padding:6px 10px;">`
+    : html`<div style="font-size:14px;font-weight:bold;opacity:.9;">${data.agency.name}</div>`}
   <div style="font-size:26px;font-weight:bold;margin-top:14px;">${t(lang, 'report.eyebrow')}</div>
   <div style="font-size:16px;margin-top:4px;">${month} · ${data.client.name}</div>
 </td></tr>

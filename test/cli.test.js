@@ -76,7 +76,7 @@ test('CLI end-to-end: setup, add a site, outage detected, restart keeps everythi
     await b.post(`${client.location}/sites`, { _csrf: csrf, name: 'Local site', url: site.url, interval_min: '1' });
 
     // the first check runs right away
-    await waitFor(async () => /Local site[\s\S]*?\d+ ms/.test((await b.get('/')).text));
+    await waitFor(async () => /Local site[\s\S]*?\d+\sms/.test((await b.get('/')).text));
 
     // fast settings so the outage is confirmed quickly
     const settingsPage = await b.get('/settings');

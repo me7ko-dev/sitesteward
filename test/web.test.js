@@ -243,3 +243,30 @@ test('setup code guessing is rate-limited', async () => {
     await fresh.close();
   }
 });
+
+test('agency logo is served as an image for e-mails; e-mail shows it (raster only)', async () => {
+  const { emailLogoUrl } = await import('../src/report.js');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const s = getSettings(ctx.app.db);
+  s.agency.logo = png;
+  s.publicUrl = 'https://monitor.example.com/';
+  saveSettings(ctx.app.db, s);
+  const r = await fetch(`${ctx.base}/brand/logo`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.equal(Buffer.from(await r.arrayBuffer()).subarray(1, 4).toString(), 'PNG');
+  assert.match(emailLogoUrl(s), /^https:\/\/monitor\.example\.com\/brand\/logo\?v=[0-9a-f]{10}$/);
+  // SVG is not shown by most mail clients → name instead of a broken image
+  assert.equal(emailLogoUrl({ ...s, agency: { ...s.agency, logo: 'data:image/svg+xml;base64,PHN2Zy8+' } }), '');
+  assert.equal(emailLogoUrl({ ...s, agency: { ...s.agency, logo: 'https://cdn.example.com/logo.png' } }), 'https://cdn.example.com/logo.png');
+  assert.equal(emailLogoUrl({ ...s, publicUrl: '' }), '');
+  const before = ctx.mails.length;
+  const report = get(ctx.app.db, 'SELECT * FROM reports');
+  await ctx.b.post(`/reports/${report.id}/send`, { _csrf: ctx.b.csrf });
+  assert.equal(ctx.mails.length, before + 1);
+  assert.match(ctx.mails.at(-1).msg.html, /<img src="https:\/\/monitor\.example\.com\/brand\/logo\?v=/);
+  assert.match(ctx.mails.at(-1).msg.html, /<meta charset="utf-8">/);
+  s.agency.logo = '';
+  saveSettings(ctx.app.db, s);
+  assert.equal((await fetch(`${ctx.base}/brand/logo`)).status, 404);
+});

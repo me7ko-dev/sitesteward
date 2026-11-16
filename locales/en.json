@@ -2,11 +2,11 @@
   "_meta": { "name": "English", "locale": "en-GB" },
   "units": {
     "lessThanMinute": "less than a minute",
-    "d": "{n} d",
-    "h": "{n} h",
-    "min": "{n} min",
-    "ms": "{n} ms",
-    "s": "{n} s"
+    "d": "{n} d",
+    "h": "{n} h",
+    "min": "{n} min",
+    "ms": "{n} ms",
+    "s": "{n} s"
   },
   "reasons": {
     "timeout": "the server did not answer in time",

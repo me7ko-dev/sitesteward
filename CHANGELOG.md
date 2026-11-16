@@ -12,6 +12,7 @@ First stable release.
 - **Pause a website**: unticking "Monitoring enabled" closes its open incidents, stops all checks (also "Check now") and shows a grey "paused" badge. Paused sites without data are left out of the monthly report.
 - **Backup download** in Settings: a consistent copy of the live database (`VACUUM INTO`), no need to stop the app.
 - **Mobile layout**: on phones the site tables turn into compact cards; tested at 390 px wide.
+- **Your logo in report e-mails**: PNG/JPEG/GIF/WebP logos are served from `/brand/logo` and shown in the e-mail header (mail clients block embedded and SVG images, so an SVG logo falls back to the agency name). The e-mail now has a proper `<head>` with charset and title.
 - `--version` flag; the version is shown at start-up and in the monitor's User-Agent.
 - `/healthz` now verifies that the database answers (returns 503 otherwise).
 - Deployment examples: `docs/deploy/sitesteward.service` (systemd, hardened) and `docs/deploy/Caddyfile` (HTTPS reverse proxy).
@@ -23,7 +24,8 @@ First stable release.
 - Panel links to reports and status pages are always absolute (falling back to the panel's own address when no public URL is set), so "Copy" gives a working link.
 - Static files are served with a content hash in the URL, so browsers pick up new styles right after an update.
 - "Refresh numbers" asks for confirmation when the report was already sent.
-- Response times use localised units (`ms`/`s`, `мс`/`с`).
+- Response times use localised units (`ms`/`s`, `мс`/`с`); numbers and units are joined with a non-breaking space so "1,30 с" never wraps.
+- The backup file name uses the date in your time zone.
 - Graceful shutdown waits (max. 5 s) for running checks before closing the database.
 
 ### Fixed

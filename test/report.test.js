@@ -84,8 +84,8 @@ test('report page (English): plain-language summary, incidents, SSL/domain, hone
   assert.match(html, /Website care report/);
   assert.match(html, /October 2026/);
   assert.match(html, /Prepared for <b>Seaside Hotel<\/b> by <b>Northwind Web Studio<\/b>/);
-  assert.match(html, /There were 2 outages \(1 h in total\)/);
-  assert.match(html, /the website was unreachable for 45 min – the server did not answer in time/);
+  assert.match(html, /There were 2 outages \(1\sh in total\)/);
+  assert.match(html, /the website was unreachable for 45\smin – the server did not answer in time/);
   assert.match(html, /Valid until 20 January 2027/);
   assert.match(html, /example\.com is registered until 13 August 2027/);
   assert.match(html, /does not offer an automatic lookup \(RDAP\)/);

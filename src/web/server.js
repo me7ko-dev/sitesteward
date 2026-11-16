@@ -9,7 +9,7 @@ import {
   safeEqual, randomToken, createRateLimiter,
 } from '../auth.js';
 import { t, hasLang } from '../i18n.js';
-import { isValidTimeZone, periodOf, previousPeriod, isPeriod, monthRange } from '../time.js';
+import { isValidTimeZone, periodOf, previousPeriod, isPeriod, monthRange, localParts } from '../time.js';
 import { siteUptime, recentDays } from '../stats.js';
 import { daysLeft } from '../monitor.js';
 import { generateReport, sendReport, newToken } from '../report.js';
@@ -178,6 +178,21 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     }));
     securityHeaders(res, { report: true });
     send(res, 200, renderStatusPage({ client, agency: s.agency, sites, lang: client.lang, tz: s.timezone }), { 'cache-control': 'no-store' });
+  }
+
+  /** The agency logo as a real image file (public: it is on every report anyway). Used by report e-mails. */
+  function brandLogo(res) {
+    const logo = safeImage(settings().agency.logo);
+    const m = /^data:(image\/(?:png|jpeg|jpg|gif|webp|svg\+xml));base64,(.+)$/is.exec(logo);
+    if (!m) throw new HttpError(404, 'Not found');
+    const type = m[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : m[1].toLowerCase();
+    const buf = Buffer.from(m[2].replace(/\s+/g, ''), 'base64');
+    res.writeHead(200, {
+      'content-type': type, 'content-length': buf.length, 'cache-control': 'public, max-age=86400',
+      // an SVG opened directly must not be able to run scripts
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    });
+    res.end(buf);
   }
 
   // ---------- helpers for panel data ----------
@@ -501,7 +516,8 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
       cleanup();
       throw err;
     }
-    const day = new Date().toISOString().slice(0, 10);
+    const lp = localParts(Date.now(), settings().timezone);
+    const day = `${lp.year}-${String(lp.month).padStart(2, '0')}-${String(lp.day).padStart(2, '0')}`;
     ctx.res.writeHead(200, {
       'content-type': 'application/vnd.sqlite3',
       'content-disposition': `attachment; filename="sitesteward-backup-${day}.db"`,
@@ -546,6 +562,7 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
         return;
       }
       if (p === '/favicon.ico') { redirect(res, '/static/favicon.svg'); return; }
+      if (req.method === 'GET' && p === '/brand/logo') { brandLogo(res); return; }
       if (p === '/healthz') {
         // for Docker / uptime checks of sitesteward itself: the database must answer
         let ok = true;
