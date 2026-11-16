@@ -1,5 +1,6 @@
 // Agency panel pages.
 import { html, raw, safeColor, safeImage } from './html.js';
+import { asset } from './assets.js';
 import {
   t, LANGS, langName, formatPct, formatMs, formatDateTime, formatMonth, formatDuration, formatBytes, localeOf,
 } from '../i18n.js';
@@ -27,7 +28,8 @@ export function layout({ lang, title, body, nav = true, settings, flash, csrf })
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${title} · sitesteward</title>
-<link rel="stylesheet" href="/static/panel.css">
+<link rel="icon" href="${asset('favicon.svg')}" type="image/svg+xml">
+<link rel="stylesheet" href="${asset('panel.css')}">
 <style>:root{--brand:${brand}}</style>
 </head>
 <body>
@@ -44,7 +46,7 @@ ${nav ? html`<header class="top">
 ${flash ? html`<div class="flash ${flash.type || 'ok'}">${flash.text}</div>` : ''}
 ${body}
 </main>
-<script src="/static/app.js"></script>
+<script src="${asset('app.js')}"></script>
 </body>
 </html>`.s;
 }
@@ -96,23 +98,23 @@ ${clients.map((c) => html`<section class="card client">
     <a href="/clients/${c.id}" class="client-name">${safeImage(c.logo) ? html`<img src="${safeImage(c.logo)}" alt="">` : html`<span class="avatar" style="background:${safeColor(c.color)}">${c.name.slice(0, 1).toUpperCase()}</span>`}${c.name}</a>
     <a class="btn ghost small" href="/clients/${c.id}">${t(lang, 'panel.dash.open')}</a>
   </div>
-  ${c.sites.length ? html`<div class="tablewrap"><table>
+  ${c.sites.length ? html`<div class="tablewrap"><table class="sites">
     <thead><tr><th></th><th>${t(lang, 'panel.site.name')}</th><th>${t(lang, 'panel.dash.response')}</th><th>${t(lang, 'panel.dash.uptime30')}</th><th>SSL</th><th>${t(lang, 'panel.dash.domain')}</th><th>${t(lang, 'panel.dash.lastCheck')}</th></tr></thead>
     <tbody>${c.sites.map((s) => html`<tr>
-      <td>${stateDot(s.state, lang)}</td>
-      <td><a href="/sites/${s.id}">${s.name}</a>${s.enabled ? '' : html` <span class="badge">${t(lang, 'panel.site.paused')}</span>`}<div class="sub">${s.url}</div>${s.spam_hits ? html`<div class="badge bad">${t(lang, 'panel.site.spamFound')}: ${s.spam_hits}</div>` : ''}${s.state === 'down' && s.last_error ? html`<div class="sub bad">${s.last_error}</div>` : ''}</td>
-      <td>${formatMs(lang, s.last_response_ms)}</td>
-      <td>${formatPct(lang, s.uptime30)}</td>
-      <td>${s.ssl_error ? html`<span class="badge bad">${t(lang, 'panel.site.sslError')}</span>` : daysBadge(lang, s.sslDays, 21, 7)}</td>
-      <td>${s.domain_status === 'ok' ? daysBadge(lang, s.domainDays, 30, 14) : html`<span class="muted small">${t(lang, `panel.domainStatus.${s.domain_status || 'pending'}`)}</span>`}</td>
-      <td class="muted small">${s.last_check_at ? formatDateTime(lang, s.last_check_at, tz) : t(lang, 'panel.dash.pending')}</td>
+      <td class="c-dot">${stateDot(s.state, lang)}</td>
+      <td class="c-name"><a href="/sites/${s.id}">${s.name}</a>${s.enabled ? '' : html` <span class="badge">${t(lang, 'panel.site.paused')}</span>`}<div class="sub">${s.url}</div>${s.spam_hits ? html`<div class="badge bad">${t(lang, 'panel.site.spamFound')}: ${s.spam_hits}</div>` : ''}${s.state === 'down' && s.last_error ? html`<div class="sub bad">${s.last_error}</div>` : ''}</td>
+      <td data-label="${t(lang, 'panel.dash.response')}">${formatMs(lang, s.last_response_ms)}</td>
+      <td data-label="${t(lang, 'panel.dash.uptime30')}">${formatPct(lang, s.uptime30)}</td>
+      <td data-label="SSL">${s.ssl_error ? html`<span class="badge bad">${t(lang, 'panel.site.sslError')}</span>` : daysBadge(lang, s.sslDays, 21, 7)}</td>
+      <td data-label="${t(lang, 'panel.dash.domain')}">${s.domain_status === 'ok' ? daysBadge(lang, s.domainDays, 30, 14) : html`<span class="muted small">${t(lang, `panel.domainStatus.${s.domain_status || 'pending'}`)}</span>`}</td>
+      <td class="muted small" data-label="${t(lang, 'panel.dash.lastCheck')}">${s.last_check_at ? formatDateTime(lang, s.last_check_at, tz) : t(lang, 'panel.dash.pending')}</td>
     </tr>`)}</tbody></table></div>` : html`<p class="muted">${t(lang, 'panel.client.noSites')}</p>`}
 </section>`)}`;
 }
 
-export function clientForm({ lang, csrf, client = {}, action }) {
+export function clientForm({ lang, csrf, client = {}, action, bare = false }) {
   const c = { color: '#0ea5e9', lang: 'en', auto_send: 1, status_public: 0, ...client };
-  return html`<form method="post" action="${action}" class="card stack" data-logo-form>
+  return html`<form method="post" action="${action}" class="${bare ? 'stack' : 'card stack'}" data-logo-form>
   ${csrfField(csrf)}
   <div class="grid2">
     <label>${t(lang, 'panel.client.name')}<input name="name" required maxlength="100" value="${c.name || ''}"></label>
@@ -166,10 +168,10 @@ export function clientPage({ lang, csrf, client, sites, reports, work, statusUrl
 
 <section class="card">
   <h2>${t(lang, 'panel.client.sites')}</h2>
-  ${sites.length ? html`<div class="tablewrap"><table><tbody>${sites.map((s) => html`<tr>
-    <td>${stateDot(s.state, lang)}</td><td><a href="/sites/${s.id}">${s.name}</a>${s.enabled ? '' : html` <span class="badge">${t(lang, 'panel.site.paused')}</span>`}<div class="sub">${s.url}</div></td>
-    <td class="nowrap">${formatMs(lang, s.last_response_ms)}</td><td class="nowrap">${formatPct(lang, s.uptime30)}</td>
-    <td class="right">${s.enabled ? html`<form method="post" action="/sites/${s.id}/check" class="inline">${csrfField(csrf)}<button class="btn ghost small">${t(lang, 'panel.site.checkNow')}</button></form>` : ''}</td>
+  ${sites.length ? html`<div class="tablewrap"><table class="sites"><thead><tr><th></th><th>${t(lang, 'panel.site.name')}</th><th>${t(lang, 'panel.dash.response')}</th><th>${t(lang, 'panel.dash.uptime30')}</th><th></th></tr></thead><tbody>${sites.map((s) => html`<tr>
+    <td class="c-dot">${stateDot(s.state, lang)}</td><td class="c-name"><a href="/sites/${s.id}">${s.name}</a>${s.enabled ? '' : html` <span class="badge">${t(lang, 'panel.site.paused')}</span>`}<div class="sub">${s.url}</div></td>
+    <td class="nowrap" data-label="${t(lang, 'panel.dash.response')}">${formatMs(lang, s.last_response_ms)}</td><td class="nowrap" data-label="${t(lang, 'panel.dash.uptime30')}">${formatPct(lang, s.uptime30)}</td>
+    <td class="right c-action">${s.enabled ? html`<form method="post" action="/sites/${s.id}/check" class="inline">${csrfField(csrf)}<button class="btn ghost small">${t(lang, 'panel.site.checkNow')}</button></form>` : ''}</td>
   </tr>`)}</tbody></table></div>` : html`<p class="muted">${t(lang, 'panel.client.noSites')}</p>`}
   <details ${sites.length ? '' : 'open'} class="add"><summary>+ ${t(lang, 'panel.site.add')}</summary>
     ${siteForm({ lang, csrf, action: `/clients/${client.id}/sites`, defaultInterval })}
@@ -199,7 +201,7 @@ export function clientPage({ lang, csrf, client, sites, reports, work, statusUrl
 
 <section class="card">
   <h2>${t(lang, 'panel.client.edit')}</h2>
-  ${clientForm({ lang, csrf, client, action: `/clients/${client.id}` })}
+  ${clientForm({ lang, csrf, client, action: `/clients/${client.id}`, bare: true })}
   <form method="post" action="/clients/${client.id}/delete" class="danger-zone">${csrfField(csrf)}
     <button class="btn danger" data-confirm="${t(lang, 'panel.confirmDelete')}">${t(lang, 'panel.client.delete')}</button></form>
 </section>`;
@@ -267,7 +269,7 @@ export function reportPage({ lang, csrf, report, client, link, pdfAvailable, can
   <div class="row"><button class="btn">${t(lang, 'panel.save')}</button></div>
 </form>
 <div class="row wrap-row">
-  <form method="post" action="/reports/${report.id}/regenerate">${csrfField(csrf)}<button class="btn ghost">${t(lang, 'panel.reports.refresh')}</button></form>
+  <form method="post" action="/reports/${report.id}/regenerate">${csrfField(csrf)}<button class="btn ghost"${report.sent_at ? html` data-confirm="${t(lang, 'panel.reports.confirmRefresh')}"` : ''}>${t(lang, 'panel.reports.refresh')}</button></form>
   <form method="post" action="/reports/${report.id}/send">${csrfField(csrf)}<button class="btn" ${canEmail ? '' : 'disabled'} data-confirm="${t(lang, 'panel.reports.confirmSend', { to: client.email })}">✉ ${t(lang, report.sent_at ? 'panel.reports.resend' : 'panel.reports.send')}</button></form>
   <form method="post" action="/reports/${report.id}/rotate">${csrfField(csrf)}<button class="btn ghost" data-confirm="${t(lang, 'panel.reports.confirmRotate')}">${t(lang, 'panel.reports.rotate')}</button></form>
   <form method="post" action="/reports/${report.id}/delete">${csrfField(csrf)}<button class="btn danger" data-confirm="${t(lang, 'panel.confirmDelete')}">${t(lang, 'panel.delete')}</button></form>

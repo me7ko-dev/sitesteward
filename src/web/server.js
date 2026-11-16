@@ -2,7 +2,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { all, get, run } from '../db.js';
 import { getSettings, saveSettings } from '../settings.js';
 import {
@@ -13,13 +12,13 @@ import { t, hasLang } from '../i18n.js';
 import { isValidTimeZone, periodOf, previousPeriod, isPeriod, monthRange } from '../time.js';
 import { siteUptime, recentDays } from '../stats.js';
 import { daysLeft } from '../monitor.js';
-import { generateReport, sendReport, reportUrl, newToken } from '../report.js';
+import { generateReport, sendReport, newToken } from '../report.js';
 import { parseWordList } from '../checks/content.js';
 import { safeColor, safeImage } from './html.js';
 import * as V from './views.js';
 import { renderReportPage, renderStatusPage } from './report-view.js';
 
-const STATIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'static');
+import { STATIC_DIR } from './assets.js';
 const STATIC = {
   'panel.css': 'text/css; charset=utf-8',
   'app.js': 'text/javascript; charset=utf-8',
@@ -96,6 +95,13 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     if (req.socket.encrypted) return true;
     if (trustProxy && String(req.headers['x-forwarded-proto'] || '').startsWith('https')) return true;
     return settings().publicUrl.startsWith('https://');
+  }
+  /** Absolute base URL for links shown in the panel: the configured public URL, else this request's host. */
+  function publicBase(req) {
+    const configured = settings().publicUrl.replace(/\/+$/, '');
+    if (configured) return configured;
+    const host = (trustProxy && req.headers['x-forwarded-host']) || req.headers.host || 'localhost';
+    return `${isHttps(req) ? 'https' : 'http'}://${String(host).split(',')[0].trim()}`;
   }
   function cookie(req, name, value, { maxAge, httpOnly = true, sameSite = 'Lax' } = {}) {
     let c = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=${sameSite}`;
@@ -266,7 +272,7 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     const sites = all(db, 'SELECT * FROM sites WHERE client_id = ? ORDER BY name COLLATE NOCASE', id).map((x) => decorateSite(x));
     const reports = all(db, 'SELECT id, period, sent_at FROM reports WHERE client_id = ? ORDER BY period DESC', id);
     const work = all(db, 'SELECT * FROM work_log WHERE client_id = ? ORDER BY ts DESC LIMIT 30', id);
-    const base = (s.publicUrl || '').replace(/\/+$/, '');
+    const base = publicBase(ctx.req);
     return [client.name, V.clientPage({
       lang: ctx.lang, csrf: ctx.session.csrf, client, sites, reports, work, tz: s.timezone,
       statusUrl: `${base}/status/${client.status_token}`, defaultInterval: s.defaultIntervalMin, periods: recentPeriods(),
@@ -365,7 +371,7 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     if (!report) throw new HttpError(404, 'Not found');
     const client = getClient(report.client_id);
     const s = settings();
-    const link = s.publicUrl ? reportUrl(s, report) : `/r/${report.token}`;
+    const link = `${publicBase(ctx.req)}/r/${report.token}`;
     return [t(ctx.lang, 'panel.reports.title'), V.reportPage({
       lang: ctx.lang, csrf: ctx.session.csrf, report, client, link, pdfAvailable: pdf.available, tz: s.timezone,
       canEmail: Boolean(client.email && s.smtp.host && s.smtp.from && s.publicUrl),
@@ -533,7 +539,9 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
       if (req.method === 'GET' && p.startsWith('/static/')) {
         const name = p.slice(8);
         if (!Object.hasOwn(STATIC, name)) throw new HttpError(404, 'Not found');
-        res.writeHead(200, { 'content-type': STATIC[name], 'cache-control': 'public, max-age=3600' });
+        // URLs carry a content hash (?v=…), so they can be cached for good
+        const cache = url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=300';
+        res.writeHead(200, { 'content-type': STATIC[name], 'cache-control': cache });
         res.end(fs.readFileSync(path.join(STATIC_DIR, name)));
         return;
       }

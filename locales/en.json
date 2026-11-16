@@ -244,6 +244,7 @@
       "next": "Next steps (one item per line)",
       "nextPh": "Add a cookie banner\nCompress the large photos on the homepage",
       "refresh": "Refresh numbers",
+      "confirmRefresh": "This report was already sent. Rebuild its numbers from the current data? The client's link will show the new numbers.",
       "send": "Send to client",
       "resend": "Send again",
       "confirmSend": "Send this report to {to}?",

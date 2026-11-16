@@ -1,5 +1,6 @@
 // The client-facing pages: monthly report, report e-mail and public status page.
 import { html, raw, safeColor, safeImage, tint, onColor } from './html.js';
+import { asset } from './assets.js';
 import {
   t, formatMonth, formatPct, formatMs, formatDate, formatTime, formatDuration, formatBytes, localeOf, formatNumber,
 } from '../i18n.js';
@@ -240,7 +241,7 @@ export function renderReportPage({ data, report, lang, pdfAvailable = false }) {
     </footer>
   </div>
 </main>
-<script src="/static/report.js"></script>
+<script src="${asset('report.js')}"></script>
 </body>
 </html>`.s;
 }

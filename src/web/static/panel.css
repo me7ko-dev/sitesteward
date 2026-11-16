@@ -85,3 +85,23 @@ details.add summary{cursor:pointer;font-weight:650;color:var(--brand);margin-bot
 @media (max-width:760px){.grid2{grid-template-columns:1fr}.top{padding:10px 16px;flex-direction:column;align-items:flex-start}.wrap{padding:20px 16px 48px}}
 .dot.paused{background:#94a3b8;box-shadow:0 0 0 3px #e2e8f0}
 .nowrap{white-space:nowrap}
+/* phones: site tables become compact cards */
+@media (max-width:640px){
+  .card{padding:16px}
+  .pagehead{align-items:flex-start}
+  .top nav{gap:14px}
+  table.sites thead{display:none}
+  table.sites,table.sites tbody{display:block}
+  table.sites tr{display:grid;grid-template-columns:22px 1fr 1fr;gap:4px 10px;padding:12px 0;border-bottom:1px solid #f0f1f4}
+  table.sites tr:last-child{border-bottom:0}
+  table.sites td{display:block;padding:0;border:0;min-width:0}
+  table.sites td.c-dot{grid-row:span 2}
+  table.sites td.c-name{grid-column:2 / -1}
+  table.sites td[data-label]{grid-column:auto;font-size:14px}
+  table.sites td[data-label]::before{content:attr(data-label);display:block;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  table.sites td[data-label]:nth-child(odd){grid-column:2}
+  table.sites td.c-action{grid-column:2 / -1;text-align:left;margin-top:4px}
+  .stat b{font-size:22px}
+}
+.client-title{flex-wrap:wrap}
+label>button.link{align-self:flex-start}
