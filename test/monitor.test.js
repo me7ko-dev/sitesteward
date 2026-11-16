@@ -4,7 +4,7 @@ import { openDb, get, all, run } from '../src/db.js';
 import { createMonitor, thresholdFor, SSL_THRESHOLDS } from '../src/monitor.js';
 import { createAlerter, fakeAdapters } from '../src/alerts/index.js';
 import { getSettings, saveSettings } from '../src/settings.js';
-import { computeUptime, siteUptime } from '../src/stats.js';
+import { computeUptime, siteUptime, dailyUptime, coverage, segmentsFromChecks, mergeIntervals, uptimeOver } from '../src/stats.js';
 import { silentLog, fakeRdap } from './helpers.js';
 
 const MIN = 60000;
@@ -98,7 +98,7 @@ test('confirmed outage opens one incident, alerts once, closes on recovery with 
 test('uptime % for a site with one 30-minute outage in a day', async () => {
   const t = setup();
   const start = t.now();
-  run(t.db, 'INSERT INTO checks(site_id, ts, ok) VALUES (1, ?, 1)', start);
+  for (let ts = start; ts <= start + DAY; ts += 5 * MIN) run(t.db, 'INSERT INTO checks(site_id, ts, ok) VALUES (1, ?, 1)', ts);
   run(t.db, "INSERT INTO incidents(site_id, kind, started_at, ended_at) VALUES (1, 'down', ?, ?)", start + 2 * 3600000, start + 2 * 3600000 + 30 * MIN);
   const u = siteUptime(t.db, 1, start, start + DAY, start + DAY);
   assert.equal(u.downMs, 30 * MIN);
@@ -107,6 +107,40 @@ test('uptime % for a site with one 30-minute outage in a day', async () => {
   run(t.db, "INSERT INTO incidents(site_id, kind, started_at) VALUES (1, 'down', ?)", start + DAY - 60 * MIN);
   const u2 = siteUptime(t.db, 1, start, start + DAY, start + DAY);
   assert.equal(u2.downMs, 90 * MIN);
+});
+
+test('uptime only counts monitored time: a day with sitesteward switched off is "no data", not 100 %', () => {
+  const t = setup();
+  const start = t.now();
+  // monitored day 1, nothing on day 2 (monitor was off), monitored again on day 3
+  for (let ts = start; ts < start + DAY; ts += 5 * MIN) run(t.db, 'INSERT INTO checks(site_id, ts, ok) VALUES (1, ?, 1)', ts);
+  for (let ts = start + 2 * DAY; ts < start + 3 * DAY; ts += 5 * MIN) run(t.db, 'INSERT INTO checks(site_id, ts, ok) VALUES (1, ?, 1)', ts);
+  // an incident that was "open" while the monitor was off only counts while someone was watching
+  run(t.db, "INSERT INTO incidents(site_id, kind, started_at, ended_at) VALUES (1, 'down', ?, ?)", start + DAY - 30 * MIN, start + 2 * DAY + 10 * MIN);
+  const days = [0, 1, 2].map((i) => ({ from: start + i * DAY, to: start + (i + 1) * DAY }));
+  const daily = dailyUptime(t.db, 1, days, start + 3 * DAY);
+  assert.equal(daily[1], null, 'unmonitored day');
+  assert.ok(daily[0] < 100 && daily[2] < 100);
+  const u = siteUptime(t.db, 1, start, start + 3 * DAY, start + 3 * DAY);
+  assert.ok(Math.abs(u.totalMs - 2 * DAY) < 10 * MIN, 'only the two monitored days count');
+  assert.equal(u.downMs, 30 * MIN + 10 * MIN);
+  // short gaps (restart, slow tick) are still monitored time
+  const segs = segmentsFromChecks([0, 5 * MIN, 50 * MIN, 55 * MIN], 5, 0, 60 * MIN);
+  assert.deepEqual(segs, [[0, 60 * MIN]]);
+  // the SQL version and the pure version agree
+  const sql = coverage(t.db, 1, start, start + 3 * DAY);
+  const ts = all(t.db, 'SELECT ts FROM checks WHERE site_id = 1 ORDER BY ts').map((r) => r.ts);
+  assert.deepEqual(sql, segmentsFromChecks(ts, 5, start, start + 3 * DAY));
+  assert.equal(sql.length, 2);
+});
+
+test('mergeIntervals / uptimeOver: overlaps are merged, only monitored time counts', () => {
+  assert.deepEqual(mergeIntervals([[5, 10], [0, 6], [20, 30]], 0, 25), [[0, 10], [20, 25]]);
+  const r = uptimeOver([[0, 100], [200, 300]], [[50, 250]]);
+  assert.equal(r.totalMs, 200);
+  assert.equal(r.downMs, 100);
+  assert.equal(r.pct, 50);
+  assert.equal(uptimeOver([], [[0, 1]]).pct, null);
 });
 
 test('hack signals: spam words alert once and clear; title change alerts', async () => {
@@ -197,4 +231,86 @@ test('tick() schedules checks by interval', async () => {
   t.advance(5 * MIN);
   await t.monitor.tick();
   assert.equal(t.calls.length, 2);
+});
+
+test('SSL: a network error (timeout/refused) is not an SSL incident and is retried soon', async () => {
+  let result = { expiresAt: Date.UTC(2026, 9, 1) + 80 * DAY, issuer: 'Test CA', valid: true, error: null };
+  let tlsCalls = 0;
+  const t = setup({ tls: async () => { tlsCalls++; return result; } });
+  await t.monitor.checkSsl(1);
+  const good = get(t.db, 'SELECT * FROM sites');
+  result = { expiresAt: null, issuer: null, valid: false, error: 'TIMEOUT', kind: 'network' };
+  t.advance(6 * 3600000);
+  await t.monitor.checkSsl(1);
+  const s = get(t.db, 'SELECT * FROM sites');
+  assert.equal(all(t.db, "SELECT * FROM incidents WHERE kind = 'ssl'").length, 0);
+  assert.equal(t.sent.length, 0);
+  assert.equal(s.ssl_error, null, 'no "SSL error" badge for a network problem');
+  assert.equal(s.ssl_expires_at, good.ssl_expires_at, 'last known certificate data is kept');
+  // retried within 30 minutes instead of 6 hours
+  assert.equal(tlsCalls, 2);
+  t.advance(20 * MIN);
+  await t.monitor.tick();
+  assert.equal(tlsCalls, 2, 'not yet');
+  t.advance(10 * MIN);
+  await t.monitor.tick();
+  assert.equal(tlsCalls, 3, 'checked again after 30 minutes');
+  // an untrusted certificate IS an incident
+  result = { expiresAt: t.now() + 10 * DAY, issuer: 'Evil CA', valid: false, error: 'SELF_SIGNED_CERT_IN_CHAIN', kind: 'cert' };
+  await t.monitor.checkSsl(1);
+  assert.equal(all(t.db, "SELECT * FROM incidents WHERE kind = 'ssl' AND ended_at IS NULL").length, 1);
+  // switching the site to http:// closes the SSL incident
+  run(t.db, "UPDATE sites SET url = 'http://www.example.com/'");
+  await t.monitor.checkSsl(1);
+  assert.equal(all(t.db, "SELECT * FROM incidents WHERE kind = 'ssl' AND ended_at IS NULL").length, 0);
+});
+
+test('paused sites are not checked (not even "check now") and never alert', async () => {
+  const t = setup({ results: [{ ok: false }, { ok: false }, { ok: false }] });
+  run(t.db, 'UPDATE sites SET enabled = 0');
+  await t.monitor.tick();
+  const r = await t.monitor.checkNow(1);
+  assert.deepEqual(r, { http: null, ssl: null, domain: null });
+  assert.equal(t.calls.length, 0);
+  assert.equal(t.sent.length, 0);
+});
+
+test('a site deleted while its check is running is handled quietly', async () => {
+  const errors = [];
+  const t = setup();
+  const db = t.db;
+  let release;
+  const monitor = createMonitor({
+    db, alerter: { send: async () => [] }, log: { ...silentLog, error: (e) => errors.push(e) },
+    httpCheckImpl: () => new Promise((resolve) => { release = () => resolve({ ok: true, status: 200, responseMs: 1, bytes: 1, body: '', error: null, errorKind: null }); }),
+    tlsCheckImpl: async () => ({ expiresAt: null, issuer: null, valid: true, error: null }),
+    rdap: fakeRdap(),
+  });
+  const p = monitor.checkHttp(1);
+  await new Promise((r) => setImmediate(r));
+  run(db, 'DELETE FROM sites WHERE id = 1');
+  release();
+  assert.equal(await p, null);
+  assert.deepEqual(errors, []);
+  assert.equal(all(db, 'SELECT * FROM checks').length, 0);
+});
+
+test('stop() waits for running checks so the database is not closed under them', async () => {
+  const t = setup();
+  let release;
+  const monitor = createMonitor({
+    db: t.db, alerter: { send: async () => [] }, log: silentLog,
+    httpCheckImpl: () => new Promise((resolve) => { release = () => resolve({ ok: true, status: 200, responseMs: 1, bytes: 1, body: '', error: null, errorKind: null }); }),
+    tlsCheckImpl: async () => ({ expiresAt: null, issuer: null, valid: true, error: null }),
+    rdap: fakeRdap(),
+  });
+  monitor.start();
+  await new Promise((r) => setImmediate(r));
+  let stopped = false;
+  const s = monitor.stop(5000).then(() => { stopped = true; });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(stopped, false, 'still waiting for the running check');
+  release();
+  await s;
+  assert.equal(all(t.db, 'SELECT * FROM checks').length, 1, 'the running check was saved');
 });

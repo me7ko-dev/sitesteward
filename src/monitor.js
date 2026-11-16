@@ -13,6 +13,11 @@ export const SSL_THRESHOLDS = [21, 14, 7, 3, 1];
 export const DOMAIN_THRESHOLDS = [30, 14, 7, 1];
 const SSL_EVERY = 6 * HOUR;
 const DOMAIN_EVERY = 24 * HOUR;
+const SSL_RETRY = 30 * 60000;
+const NETWORK_ERRORS = /^(TIMEOUT|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE|ENODATA)$/;
+
+/** A TLS result that failed before any certificate could be read (not a certificate problem). */
+export const isNetworkError = (r) => Boolean(r?.error) && (r.kind === 'network' || (r.kind == null && NETWORK_ERRORS.test(String(r.error))));
 
 /** Smallest threshold that `days` has reached, or null. */
 export function thresholdFor(days, thresholds) {
@@ -67,7 +72,7 @@ export function createMonitor({
 
   async function checkHttp(siteId) {
     const site = siteRow(siteId);
-    if (!site) return null;
+    if (!site || !site.enabled) return null; // paused sites are not checked, not even by "check now"
     const s = getSettings(db);
     const opts = { timeoutMs: s.timeoutSec * 1000, keyword: site.keyword };
     const firstAttemptAt = now();
@@ -77,8 +82,10 @@ export function createMonitor({
       r = await httpCheckImpl(site.url, opts);
     }
     const ts = now();
-    // read the state again: it may have changed while this check was waiting on the network
-    const prevState = get(db, 'SELECT state FROM sites WHERE id = ?', site.id)?.state ?? site.state;
+    // read the site again: it may have been edited, paused or deleted while this check was waiting on the network
+    const fresh = get(db, 'SELECT state, enabled, url FROM sites WHERE id = ?', site.id);
+    if (!fresh || !fresh.enabled || fresh.url !== site.url) return null;
+    const prevState = fresh.state;
     run(db, 'INSERT INTO checks(site_id, ts, ok, status, response_ms, bytes, error) VALUES (?, ?, ?, ?, ?, ?, ?)',
       site.id, ts, r.ok ? 1 : 0, r.status, r.responseMs, r.bytes, r.error);
     run(db, `UPDATE sites SET last_check_at = ?, last_status = ?, last_response_ms = ?, last_bytes = ?, last_error = ?, state = ? WHERE id = ?`,
@@ -123,15 +130,26 @@ export function createMonitor({
 
   async function checkSsl(siteId) {
     const site = siteRow(siteId);
-    if (!site) return null;
+    if (!site || !site.enabled) return null;
     let u;
     try { u = new URL(site.url); } catch { return null; }
     if (u.protocol !== 'https:') {
-      run(db, 'UPDATE sites SET ssl_checked_at = ?, ssl_expires_at = NULL, ssl_error = NULL WHERE id = ?', now(), site.id);
+      const ts = now();
+      run(db, 'UPDATE sites SET ssl_checked_at = ?, ssl_expires_at = NULL, ssl_issuer = NULL, ssl_error = NULL, ssl_warned_days = NULL WHERE id = ?', ts, site.id);
+      const open = openIncident(site.id, 'ssl');
+      if (open) run(db, 'UPDATE incidents SET ended_at = ? WHERE id = ?', ts, open.id);
       return null;
     }
     const r = await tlsCheckImpl(u.hostname, Number(u.port) || 443);
     const ts = now();
+    if (!get(db, 'SELECT id FROM sites WHERE id = ?', site.id)) return null;
+    if (isNetworkError(r)) {
+      // Could not even connect (timeout, refused, DNS): that is an availability problem, which the
+      // HTTP check reports with retries. Not an SSL incident – keep the last known certificate data
+      // and try again in 30 minutes instead of waiting 6 hours.
+      run(db, 'UPDATE sites SET ssl_checked_at = ? WHERE id = ?', ts - SSL_EVERY + SSL_RETRY, site.id);
+      return r;
+    }
     run(db, 'UPDATE sites SET ssl_checked_at = ?, ssl_expires_at = ?, ssl_issuer = ?, ssl_error = ? WHERE id = ?',
       ts, r.expiresAt, r.issuer, r.error, site.id);
     const open = openIncident(site.id, 'ssl');
@@ -156,7 +174,7 @@ export function createMonitor({
 
   async function checkDomain(siteId) {
     const site = siteRow(siteId);
-    if (!site) return null;
+    if (!site || !site.enabled) return null;
     let host = '';
     try { host = new URL(site.url).hostname; } catch { /* invalid URL */ }
     const domain = (site.domain || registrableDomain(host)).toLowerCase();
@@ -166,6 +184,7 @@ export function createMonitor({
     }
     const r = await rdapClient.lookup(domain);
     const ts = now();
+    if (!get(db, 'SELECT id FROM sites WHERE id = ?', site.id)) return null;
     if (r.status === 'error' && site.domain_status === 'ok') {
       // keep the last good expiry date on a temporary RDAP error; retry sooner
       run(db, 'UPDATE sites SET domain_checked_at = ? WHERE id = ?', ts - DOMAIN_EVERY + HOUR, site.id);
@@ -244,10 +263,17 @@ export function createMonitor({
     timer.unref?.();
   }
 
-  function stop() {
+  /** Stop scheduling. The returned promise resolves when running checks have finished (max `waitMs`). */
+  function stop(waitMs = 5000) {
     if (timer) clearInterval(timer);
     timer = null;
+    const pending = [...running.values()];
+    if (!pending.length) return Promise.resolve();
+    return Promise.race([
+      Promise.allSettled(pending),
+      new Promise((r) => { const tm = setTimeout(r, waitMs); tm.unref?.(); }),
+    ]);
   }
 
-  return { tick, start, stop, checkHttp, checkSsl, checkDomain, checkNow };
+  return { tick, start, stop, checkHttp, checkSsl, checkDomain, checkNow, isRunning: () => timer != null };
 }

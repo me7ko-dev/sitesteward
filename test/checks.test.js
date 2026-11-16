@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { httpCheck } from '../src/checks/http-check.js';
-import { extractTitle, findSpamWords, parseWordList } from '../src/checks/content.js';
+import { extractTitle, findSpamWords, parseWordList, decodeEntities } from '../src/checks/content.js';
 import { tlsCheck } from '../src/checks/tls-check.js';
 import { createRdap, registrableDomain, parseRdap } from '../src/checks/domain-check.js';
 import { startTestSite } from './helpers.js';
@@ -136,6 +136,7 @@ test('tls: reads expiry of a local self-signed certificate', async (t) => {
     const untrusted = await tlsCheck('localhost', port);
     assert.equal(untrusted.valid, false);
     assert.ok(untrusted.error, 'self-signed is reported as an error');
+    assert.equal(untrusted.kind, 'cert');
     const days = Math.round((untrusted.expiresAt - Date.now()) / 86400000);
     assert.ok(days >= 29 && days <= 30, `days=${days}`);
     const trusted = await tlsCheck('localhost', port, { ca: cert });
@@ -146,4 +147,28 @@ test('tls: reads expiry of a local self-signed certificate', async (t) => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('content: broken or hostile entities never throw', () => {
+  assert.equal(decodeEntities('a&#99999999;b&#x110000;c&#0;d'), 'a�b�c�d');
+  assert.equal(decodeEntities('&constructor;&toString;&amp;'), '&constructor;&toString;&');
+  assert.equal(extractTitle('<title>Hotel &#128512; &#x1F600;</title>'), 'Hotel 😀 😀');
+  assert.deepEqual(findSpamWords('<p>&#99999999; c&#97;sino</p>', ['casino']), ['casino']);
+});
+
+test('tls: tells network problems apart from certificate problems', async () => {
+  const srv = net.createServer();
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const { port } = srv.address();
+  await new Promise((r) => srv.close(r));
+  const refused = await tlsCheck('127.0.0.1', port, { timeoutMs: 3000 });
+  assert.equal(refused.kind, 'network');
+  assert.equal(refused.error, 'ECONNREFUSED');
+
+  // a plain HTTP server on the port: the TLS handshake fails – that IS an SSL problem
+  const plain = await startTestSite();
+  const noTls = await tlsCheck('127.0.0.1', plain.port, { timeoutMs: 3000 });
+  await plain.close();
+  assert.equal(noTls.valid, false);
+  assert.equal(noTls.kind, 'tls');
 });

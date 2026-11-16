@@ -2,12 +2,16 @@
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
 
+// Out-of-range numeric entities (&#99999999;) must not throw: String.fromCodePoint would
+// raise a RangeError and break the content analysis for that page.
+const codePoint = (n) => String.fromCodePoint(Number.isInteger(n) && n > 0 && n <= 0x10ffff ? n : 0xfffd);
+
 export function decodeEntities(s) {
-  return s.replace(/&(#x?[0-9a-f]+|[a-z]+|#39);/gi, (m, e) => {
+  return String(s ?? '').replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (m, e) => {
     const k = e.toLowerCase();
-    if (ENTITIES[k] !== undefined) return ENTITIES[k];
-    if (k.startsWith('#x')) return String.fromCodePoint(parseInt(k.slice(2), 16) || 32);
-    if (k.startsWith('#')) return String.fromCodePoint(parseInt(k.slice(1), 10) || 32);
+    if (Object.hasOwn(ENTITIES, k)) return ENTITIES[k];
+    if (k.startsWith('#x')) return codePoint(parseInt(k.slice(2), 16));
+    if (k.startsWith('#')) return codePoint(parseInt(k.slice(1), 10));
     return m;
   });
 }

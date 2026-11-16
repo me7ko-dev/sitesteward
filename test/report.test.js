@@ -26,8 +26,8 @@ function seed({ lang = 'en', clientName = 'Seaside Hotel' } = {}) {
     Date.UTC(2027, 0, 20), Date.UTC(2027, 7, 13));
   run(db, "INSERT INTO sites(client_id, name, url, created_at, domain_status, domain_name) VALUES (1, 'Booking', 'https://booking.example.bg/', 0, 'no-rdap', 'example.bg')");
   const { from, to } = monthRange('2026-10', 'Europe/Sofia');
-  // checks every hour for the whole month
-  for (let ts = from; ts < to; ts += HOUR) {
+  // checks every hour for the whole month (and the monitor keeps running into the next month)
+  for (let ts = from; ts < to + DAY; ts += HOUR) {
     run(db, 'INSERT INTO checks(site_id, ts, ok, status, response_ms, bytes) VALUES (1, ?, 1, 200, 420, 48213)', ts);
     run(db, 'INSERT INTO checks(site_id, ts, ok, status, response_ms, bytes) VALUES (2, ?, 1, 200, 980, 30000)', ts);
   }
@@ -188,4 +188,70 @@ test('i18n: every English key exists in every other language', () => {
   assert.equal(t('bg', 'report.checksDone', { count: 5, n: 5 }), '5 проверки');
   assert.equal(formatPct('en', 99.996), '99.99%');
   assert.equal(formatPct('en', 100), '100%');
+});
+
+test('monthly schedule catches up after downtime on the 1st, but only in the first week', async () => {
+  const { db } = seed();
+  const sent = [];
+  const nov3 = Date.UTC(2026, 10, 3, 6, 0);
+  const r = await runMonthlySchedule(db, { now: nov3, alerter: null, send: async (id) => sent.push(id), log: silentLog });
+  assert.equal(r.ran, true, 'sitesteward was off on the 1st: reports are still created on the 3rd');
+  assert.equal(r.period, '2026-10');
+
+  const { db: db2 } = seed();
+  const nov9 = Date.UTC(2026, 10, 9, 6, 0);
+  assert.equal((await runMonthlySchedule(db2, { now: nov9, alerter: null, send: async () => {}, log: silentLog })).ran, false);
+});
+
+test('monthly schedule: only monitored clients, never re-sends, one failure does not stop the others', async () => {
+  const { db } = seed();
+  // a client added after the month ended (no checks in October) gets no empty report
+  run(db, "INSERT INTO clients(name, email, lang, status_token, created_at) VALUES ('New Client', 'new@example.com', 'en', 'status_token_new_1234', 0)");
+  run(db, "INSERT INTO sites(client_id, name, url, created_at) VALUES (2, 'New', 'https://new.example.com/', 0)");
+  // a third client whose e-mail fails
+  run(db, "INSERT INTO clients(name, email, lang, status_token, created_at) VALUES ('Broken Mail', 'broken@example.com', 'en', 'status_token_brk_1234', 0)");
+  run(db, "INSERT INTO sites(client_id, name, url, created_at) VALUES (3, 'Broken', 'https://broken.example.com/', 0)");
+  const { from } = monthRange('2026-10', 'Europe/Sofia');
+  run(db, 'INSERT INTO checks(site_id, ts, ok) VALUES (4, ?, 1)', from + 10 * DAY);
+  const s = getSettings(db);
+  s.reports.mode = 'auto';
+  s.alerts.webhook = { enabled: true, url: 'https://hooks.example.test/' };
+  saveSettings(db, s);
+  const adapters = fakeAdapters();
+  const alerter = createAlerter({ db, adapters, log: silentLog });
+  const sent = [];
+  const send = async (id) => {
+    const rep = get(db, 'SELECT * FROM reports WHERE id = ?', id);
+    if (rep.client_id === 3) throw new Error('mailbox unavailable');
+    run(db, 'UPDATE reports SET sent_at = 1 WHERE id = ?', id);
+    sent.push(id);
+  };
+  // Seaside Hotel was already sent manually before the schedule ran
+  const pre = generateReport(db, 1, '2026-10', Date.UTC(2026, 10, 1, 6));
+  run(db, "UPDATE reports SET sent_at = 123, data_json = '{\"frozen\":true}' WHERE id = ?", pre.id);
+  const r = await runMonthlySchedule(db, { now: Date.UTC(2026, 10, 1, 8), alerter, send, log: silentLog });
+  assert.equal(r.ran, true);
+  assert.equal(get(db, 'SELECT COUNT(*) AS n FROM reports WHERE client_id = 2').n, 0, 'no report for a client without data');
+  assert.equal(get(db, 'SELECT data_json FROM reports WHERE id = ?', pre.id).data_json, '{"frozen":true}', 'a sent report is not rebuilt');
+  assert.deepEqual(sent, [], 'nothing was re-sent; the failing one did not throw');
+  assert.equal(r.failures.length, 1);
+  assert.match(r.failures[0], /Broken Mail: mailbox unavailable/);
+  assert.match(adapters.sink[0].msg.text, /mailbox unavailable/);
+  assert.equal(adapters.sink[0].msg.severity, 'warning');
+});
+
+test('report: paused site without data is left out; unmonitored days are "no data"', () => {
+  const { db, now, from } = seed();
+  run(db, "INSERT INTO sites(client_id, name, url, created_at, enabled) VALUES (1, 'Old paused site', 'https://old.example.com/', 0, 0)");
+  // a site added on Oct 20: the days before are "no data", not 100 %
+  run(db, "INSERT INTO sites(client_id, name, url, created_at) VALUES (1, 'Late site', 'https://late.example.com/', 0)");
+  const late = get(db, "SELECT id FROM sites WHERE name = 'Late site'").id;
+  for (let ts = from + 19 * DAY; ts < from + 33 * DAY; ts += 5 * MIN) run(db, 'INSERT INTO checks(site_id, ts, ok, response_ms) VALUES (?, ?, 1, 300)', late, ts);
+  const d = buildReportData(db, 1, '2026-10', now);
+  assert.deepEqual(d.sites.map((s) => s.name), ['Booking', 'Late site', 'Main site']);
+  const l = d.sites.find((s) => s.name === 'Late site');
+  assert.equal(l.daily[0], null);
+  assert.equal(l.daily[18], null);
+  assert.equal(l.daily[20], 100);
+  assert.equal(l.uptime, 100);
 });

@@ -1,7 +1,8 @@
 // HTTP(S) availability + homepage content check using the built-in fetch.
 import { performance } from 'node:perf_hooks';
+import { VERSION } from '../version.js';
 
-export const USER_AGENT = 'Mozilla/5.0 (compatible; sitesteward/0.1; website monitor)';
+export const USER_AGENT = `Mozilla/5.0 (compatible; sitesteward/${VERSION}; +https://github.com/me7ko-dev/sitesteward)`;
 const MAX_BYTES = 10 * 1024 * 1024;
 
 /**

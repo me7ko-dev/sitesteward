@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { all, get, run } from './db.js';
 import { getSettings, getKv, setKv } from './settings.js';
 import { monthRange, previousPeriod, localParts, daysOfMonth } from './time.js';
-import { siteUptime, avgResponse, checkCount, incidentsInRange, computeUptime, firstCheckTs } from './stats.js';
+import { uptimeData, avgResponse, checkCount, incidentsInRange } from './stats.js';
 import { daysLeft } from './monitor.js';
 import { t, formatMonth, formatPct, formatMs } from './i18n.js';
 import { renderReportEmail } from './web/report-view.js';
@@ -18,8 +18,11 @@ export function buildReportData(db, clientId, period, now = Date.now()) {
   if (!client) throw new Error('Client not found');
   const { from, to } = monthRange(period, tz);
   const days = daysOfMonth(period, tz);
-  const sites = all(db, 'SELECT * FROM sites WHERE client_id = ? ORDER BY name', clientId).map((s) => {
-    const up = siteUptime(db, s.id, from, to, now);
+  const sites = all(db, 'SELECT * FROM sites WHERE client_id = ? ORDER BY name COLLATE NOCASE', clientId).map((s) => {
+    const ud = uptimeData(db, s.id, from, to, now);
+    // a paused site that was not monitored at all this month does not belong in the report
+    if (!s.enabled && !ud.segments.length) return null;
+    const up = ud.range(from, to);
     const { avgMs, samples } = avgResponse(db, s.id, from, to);
     const incidents = incidentsInRange(db, s.id, from, to)
       .filter((i) => i.kind === 'down' || i.kind === 'content' || i.kind === 'ssl')
@@ -31,14 +34,7 @@ export function buildReportData(db, clientId, period, now = Date.now()) {
         reason: i.reason,
         detail: i.kind === 'content' ? i.detail : '',
       }));
-    const first = firstCheckTs(db, s.id);
-    const daily = days.map((d) => {
-      if (first == null || d.from > now || d.to <= first) return null;
-      const st = Math.max(d.from, first);
-      const en = Math.min(d.to, now);
-      const ivs = incidents.filter((i) => i.kind === 'down').map((i) => [i.start, i.end ?? en]);
-      return computeUptime(st, en, ivs).pct;
-    });
+    const daily = days.map((d) => (d.from >= now ? null : ud.range(d.from, d.to).pct));
     const securityHits = incidents.filter((i) => i.kind === 'content');
     return {
       id: s.id,
@@ -57,6 +53,7 @@ export function buildReportData(db, clientId, period, now = Date.now()) {
         clean: securityHits.length === 0,
         words: [...new Set(securityHits.flatMap((i) => i.detail.split(',').map((w) => w.trim())).filter(Boolean))].join(', '),
       },
+      monitoredMs: up.totalMs,
       ssl: s.url.startsWith('https:')
         ? { expiresAt: s.ssl_expires_at, daysLeft: daysLeft(s.ssl_expires_at, now), issuer: s.ssl_issuer, error: s.ssl_error, checked: s.ssl_checked_at != null }
         : { none: true },
@@ -65,7 +62,7 @@ export function buildReportData(db, clientId, period, now = Date.now()) {
         daysLeft: daysLeft(s.domain_expires_at, now), registrar: s.domain_registrar,
       },
     };
-  });
+  }).filter(Boolean);
   const withData = sites.filter((s) => s.uptime != null);
   const totalDown = withData.reduce((a, s) => a + s.downMs, 0);
   const avgUptime = withData.length ? withData.reduce((a, s) => a + s.uptime, 0) / withData.length : null;
@@ -155,38 +152,63 @@ export async function sendReport(db, reportId, { mailer, pdf, renderHtml }, now 
   return { to: client.email, attachments: attachments.length };
 }
 
+/** Reports are created on the 1st; if sitesteward was not running then, it catches up during the first week. */
+export const CATCH_UP_DAYS = 7;
+const scheduleLocks = new WeakSet();
+
 /**
- * Called every scheduler tick. On the 1st of the month (after the configured hour, agency time zone):
+ * Called every scheduler tick. From the 1st of the month (after the configured hour, agency time zone):
  * - "manual" mode: create draft reports for last month and notify the agency once.
  * - "auto" mode: create and e-mail them.
+ * Only clients whose sites were actually monitored last month get a report. Safe to call repeatedly
+ * and after a crash/restart: reports that were already sent are never rebuilt or sent twice.
  */
 export async function runMonthlySchedule(db, { now, alerter, send, log = console }) {
   const settings = getSettings(db);
   const tz = settings.timezone;
   const p = localParts(now, tz);
-  if (p.day !== 1 || p.hour < Number(settings.reports.hour ?? 9)) return { ran: false };
+  if (p.day > CATCH_UP_DAYS || (p.day === 1 && p.hour < Number(settings.reports.hour ?? 9))) return { ran: false };
   const period = previousPeriod(now, tz);
-  if (getKv(db, 'scheduleDone') === period) return { ran: false };
-  setKv(db, 'scheduleDone', period);
-  const clients = all(db, 'SELECT c.* FROM clients c WHERE EXISTS (SELECT 1 FROM sites s WHERE s.client_id = c.id)');
-  let created = 0;
-  let sent = 0;
-  const failures = [];
-  for (const c of clients) {
-    const report = generateReport(db, c.id, period, now);
-    created++;
-    if (settings.reports.mode === 'auto' && c.auto_send && c.email && !report.sent_at) {
-      try { await send(report.id); sent++; } catch (err) { failures.push(`${c.name}: ${err.message}`); log.warn?.(`[report] ${c.name}: ${err.message}`); }
+  if (getKv(db, 'scheduleDone') === period || scheduleLocks.has(db)) return { ran: false };
+  scheduleLocks.add(db);
+  try {
+    const { from, to } = monthRange(period, tz);
+    const clients = all(db, `SELECT c.* FROM clients c WHERE EXISTS (
+      SELECT 1 FROM sites s JOIN checks k ON k.site_id = s.id WHERE s.client_id = c.id AND k.ts >= ? AND k.ts < ?)
+      ORDER BY c.name COLLATE NOCASE`, from, to);
+    let created = 0;
+    let sent = 0;
+    const failures = [];
+    for (const c of clients) {
+      try {
+        const existing = get(db, 'SELECT * FROM reports WHERE client_id = ? AND period = ?', c.id, period);
+        const report = existing?.sent_at ? existing : generateReport(db, c.id, period, now);
+        created++;
+        if (settings.reports.mode === 'auto' && c.auto_send && c.email && !report.sent_at) {
+          await send(report.id);
+          sent++;
+        }
+      } catch (err) {
+        failures.push(`${c.name}: ${err.message}`);
+        log.warn?.(`[report] ${c.name}: ${err.message}`);
+      }
     }
+    setKv(db, 'scheduleDone', period);
+    const lang = settings.panelLang;
+    if (alerter && (created || failures.length)) {
+      try {
+        await alerter.send({
+          type: 'reports', severity: failures.length ? 'warning' : 'info',
+          title: t(lang, 'alerts.reportsTitle', { month: formatMonth(lang, period) }),
+          text: t(lang, settings.reports.mode === 'auto' ? 'alerts.reportsSent' : 'alerts.reportsDraft', { created, sent, count: created })
+            + (failures.length ? `\n${failures.join('\n')}` : ''),
+        });
+      } catch (err) {
+        log.warn?.(`[report] notification failed: ${err.message}`);
+      }
+    }
+    return { ran: true, period, created, sent, failures };
+  } finally {
+    scheduleLocks.delete(db);
   }
-  const lang = settings.panelLang;
-  if (alerter && created) {
-    await alerter.send({
-      type: 'reports', severity: 'info',
-      title: t(lang, 'alerts.reportsTitle', { month: formatMonth(lang, period) }),
-      text: t(lang, settings.reports.mode === 'auto' ? 'alerts.reportsSent' : 'alerts.reportsDraft', { created, sent, count: created })
-        + (failures.length ? `\n${failures.join('\n')}` : ''),
-    });
-  }
-  return { ran: true, period, created, sent, failures };
 }
