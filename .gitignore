@@ -1,0 +1,11 @@
+node_modules/
+# runtime data: database, settings, secrets (SMTP / Telegram / webhooks) live here
+data/
+client-uptime-data/
+*.db
+*.db-wal
+*.db-shm
+.env
+_tmp/
+SESSION_NOTES.md
+npm-debug.log*

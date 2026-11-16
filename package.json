@@ -1,0 +1,38 @@
+{
+  "name": "client-uptime",
+  "version": "0.1.0",
+  "description": "Monitor your clients' websites and send them a beautiful, white-label monthly report under your own brand.",
+  "type": "module",
+  "bin": {
+    "client-uptime": "bin/client-uptime.js"
+  },
+  "main": "src/app.js",
+  "files": [
+    "bin",
+    "src",
+    "locales",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node bin/client-uptime.js",
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "keywords": [
+    "uptime",
+    "monitoring",
+    "white-label",
+    "client-report",
+    "agency",
+    "freelancer",
+    "ssl",
+    "domain-expiry",
+    "status-page",
+    "self-hosted"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}
