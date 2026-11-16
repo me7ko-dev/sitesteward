@@ -28,7 +28,13 @@ First stable release.
 - The backup file name uses the date in your time zone.
 - Graceful shutdown waits (max. 5 s) for running checks before closing the database.
 
+### Security
+- The backup copy (which contains the password hash and the SMTP / alert secrets) is written into a private, freshly created temporary directory (mode 0700) and the whole directory is always deleted afterwards – also when the download fails or the browser aborts it.
+
 ### Fixed
+- SSL and domain checks ignore their result if the site was paused, deleted or given a new URL/domain while the lookup was running (no stray incidents or stale certificate data).
+- Each check now stores the check interval in effect at that time (database migration v2), so changing a site's interval later does not distort the monitored time of earlier months.
+- A clean shutdown also waits for a running scheduler tick (for example monthly reports being e-mailed), so a report is not sent twice after a restart.
 - Numeric HTML entities outside the Unicode range (for example `&#99999999;`) threw a `RangeError` and silently skipped the spam-word and title checks for that page.
 - Entity names such as `&constructor;` were decoded via the object prototype.
 - Switching a site from `https://` to `http://` left its SSL incident open forever.

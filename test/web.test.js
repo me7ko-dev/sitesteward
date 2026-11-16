@@ -270,3 +270,46 @@ test('agency logo is served as an image for e-mails; e-mail shows it (raster onl
   saveSettings(ctx.app.db, s);
   assert.equal((await fetch(`${ctx.base}/brand/logo`)).status, 404);
 });
+
+test('backup: the copy is written to a private temp dir that is always removed (also on aborted downloads)', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { createBackupSnapshot } = await import('../src/backup.js');
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-backup-parent-'));
+  const fresh = await startApp({ appOptions: { tmpDir: parent } });
+  try {
+    // direct: private directory (0700 on POSIX), removed by cleanup()
+    const snap = createBackupSnapshot(fresh.app.db, parent);
+    assert.ok(fs.existsSync(snap.file));
+    assert.equal(path.dirname(snap.file), snap.dir);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(snap.dir).mode & 0o777, 0o700);
+    snap.cleanup();
+    assert.equal(fs.existsSync(snap.dir), false);
+
+    const b = await setupAndLogin(fresh);
+    const cookie = `cu_session=${b.jar.get('cu_session')}`;
+    const full = await fetch(`${fresh.base}/settings/backup`, { headers: { cookie } });
+    assert.equal(full.status, 200);
+    await full.arrayBuffer();
+    await waitEmpty(fs, parent);
+
+    // the client goes away right after the headers
+    const ac = new AbortController();
+    const aborted = await fetch(`${fresh.base}/settings/backup`, { headers: { cookie }, signal: ac.signal });
+    assert.equal(aborted.status, 200);
+    ac.abort();
+    await waitEmpty(fs, parent);
+  } finally {
+    await fresh.close();
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+async function waitEmpty(fs, dir) {
+  for (let i = 0; i < 50; i++) {
+    if (fs.readdirSync(dir).length === 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.deepEqual(fs.readdirSync(dir), [], 'temporary backup directory was not removed');
+}

@@ -110,6 +110,11 @@ const SCHEMA = [
     error   TEXT
   );
   `,
+  // v2: the check interval at the time of each check, so changing a site's interval later does not
+  // distort the "monitored time" of older months (see stats.js coverage()).
+  `
+  ALTER TABLE checks ADD COLUMN interval_min INTEGER;
+  `,
 ];
 
 export function openDb(file) {

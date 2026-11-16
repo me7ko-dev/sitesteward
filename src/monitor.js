@@ -48,6 +48,7 @@ export function createMonitor({
   let active = 0;
   let timer = null;
   let lastMaintenance = 0;
+  const ticks = new Set(); // running scheduler ticks (they may be e-mailing monthly reports)
 
   const lang = () => getSettings(db).panelLang;
   const tr = (key, vars) => t(lang(), key, vars);
@@ -57,6 +58,12 @@ export function createMonitor({
     const base = getSettings(db).publicUrl;
     return base ? `${base.replace(/\/+$/, '')}/sites/${site.id}` : undefined;
   };
+
+  /** True if the site was deleted, paused or re-pointed while a check was waiting on the network. */
+  function changedMeanwhile(site) {
+    const fresh = get(db, 'SELECT enabled, url, domain FROM sites WHERE id = ?', site.id);
+    return !fresh || !fresh.enabled || fresh.url !== site.url || fresh.domain !== site.domain;
+  }
 
   async function alert(site, type, severity, titleKey, textKey, vars = {}) {
     const v = { site: site.name, url: site.url, client: site.client_name, ...vars };
@@ -86,8 +93,8 @@ export function createMonitor({
     const fresh = get(db, 'SELECT state, enabled, url FROM sites WHERE id = ?', site.id);
     if (!fresh || !fresh.enabled || fresh.url !== site.url) return null;
     const prevState = fresh.state;
-    run(db, 'INSERT INTO checks(site_id, ts, ok, status, response_ms, bytes, error) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      site.id, ts, r.ok ? 1 : 0, r.status, r.responseMs, r.bytes, r.error);
+    run(db, 'INSERT INTO checks(site_id, ts, ok, status, response_ms, bytes, error, interval_min) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      site.id, ts, r.ok ? 1 : 0, r.status, r.responseMs, r.bytes, r.error, site.interval_min);
     run(db, `UPDATE sites SET last_check_at = ?, last_status = ?, last_response_ms = ?, last_bytes = ?, last_error = ?, state = ? WHERE id = ?`,
       ts, r.status, r.responseMs, r.ok ? r.bytes : site.last_bytes, r.error, r.ok ? 'up' : 'down', site.id);
 
@@ -142,7 +149,7 @@ export function createMonitor({
     }
     const r = await tlsCheckImpl(u.hostname, Number(u.port) || 443);
     const ts = now();
-    if (!get(db, 'SELECT id FROM sites WHERE id = ?', site.id)) return null;
+    if (changedMeanwhile(site)) return null;
     if (isNetworkError(r)) {
       // Could not even connect (timeout, refused, DNS): that is an availability problem, which the
       // HTTP check reports with retries. Not an SSL incident – keep the last known certificate data
@@ -184,7 +191,7 @@ export function createMonitor({
     }
     const r = await rdapClient.lookup(domain);
     const ts = now();
-    if (!get(db, 'SELECT id FROM sites WHERE id = ?', site.id)) return null;
+    if (changedMeanwhile(site)) return null;
     if (r.status === 'error' && site.domain_status === 'ok') {
       // keep the last good expiry date on a temporary RDAP error; retry sooner
       run(db, 'UPDATE sites SET domain_checked_at = ? WHERE id = ?', ts - DOMAIN_EVERY + HOUR, site.id);
@@ -257,7 +264,11 @@ export function createMonitor({
 
   function start() {
     if (timer) return;
-    const loop = () => { tick().catch((e) => log.error?.(e)); };
+    const loop = () => {
+      const p = tick().catch((e) => log.error?.(e));
+      ticks.add(p);
+      p.finally(() => ticks.delete(p));
+    };
     loop();
     timer = setInterval(loop, tickMs);
     timer.unref?.();
@@ -267,7 +278,7 @@ export function createMonitor({
   function stop(waitMs = 5000) {
     if (timer) clearInterval(timer);
     timer = null;
-    const pending = [...running.values()];
+    const pending = [...running.values(), ...ticks];
     if (!pending.length) return Promise.resolve();
     return Promise.race([
       Promise.allSettled(pending),

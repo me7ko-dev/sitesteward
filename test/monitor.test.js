@@ -314,3 +314,39 @@ test('stop() waits for running checks so the database is not closed under them',
   await s;
   assert.equal(all(t.db, 'SELECT * FROM checks').length, 1, 'the running check was saved');
 });
+
+test('coverage uses the interval that was in effect: changing it later does not rewrite old months', () => {
+  const t = setup();
+  const start = t.now();
+  // a site checked every 4 hours for two days ...
+  for (let ts = start; ts < start + 2 * DAY; ts += 4 * 3600000) run(t.db, 'INSERT INTO checks(site_id, ts, ok, interval_min) VALUES (1, ?, 1, 240)', ts);
+  // ... then switched to every 5 minutes
+  run(t.db, 'UPDATE sites SET interval_min = 5');
+  for (let ts = start + 2 * DAY; ts < start + 3 * DAY; ts += 5 * MIN) run(t.db, 'INSERT INTO checks(site_id, ts, ok, interval_min) VALUES (1, ?, 1, 5)', ts);
+  const segs = coverage(t.db, 1, start, start + 3 * DAY);
+  assert.deepEqual(segs, [[start, start + 3 * DAY]], 'the 4-hour period still counts as monitored');
+});
+
+test('database migration v1 → v2 keeps data and adds the per-check interval', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-migrate-'));
+  const file = path.join(dir, 'old.db');
+  try {
+    let db = openDb(file);
+    run(db, "INSERT INTO clients(name, status_token, created_at) VALUES ('Old', 'tok_old_old_old_old', 0)");
+    run(db, "INSERT INTO sites(client_id, name, url, created_at) VALUES (1, 'Old site', 'https://old.example/', 0)");
+    db.exec('ALTER TABLE checks DROP COLUMN interval_min; PRAGMA user_version = 1;');
+    run(db, 'INSERT INTO checks(site_id, ts, ok) VALUES (1, 1000, 1)');
+    db.close();
+    db = openDb(file);
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 2);
+    assert.equal(get(db, 'SELECT name FROM sites').name, 'Old site');
+    assert.equal(get(db, 'SELECT interval_min FROM checks').interval_min, null);
+    run(db, 'INSERT INTO checks(site_id, ts, ok, interval_min) VALUES (1, 2000, 1, 5)');
+    db.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -68,28 +68,36 @@ export function segmentsFromChecks(timestamps, intervalMin, from, to) {
   return mergeIntervals(segs, from, to);
 }
 
+/** Largest possible gap tolerance (interval max. 1440 min → 3 days); used to widen the query range. */
+const MAX_TOLERANCE = coverageTolerance(1440);
+
 /**
  * Monitored segments of a site within [from, to), computed in SQL so only gap boundaries are read.
+ * Each gap is judged with the check interval that was in effect at the earlier check (older rows
+ * without a stored interval use the site's current one).
  * @returns {Array<[number, number]>}
  */
 export function coverage(db, siteId, from, to) {
   const site = get(db, 'SELECT interval_min FROM sites WHERE id = ?', siteId);
   if (!site || to <= from) return [];
-  const tol = coverageTolerance(site.interval_min);
-  const iv = Math.max(1, site.interval_min || 5) * MIN;
+  const current = Math.max(1, site.interval_min || 5);
   const rows = all(db, `WITH c AS (
-      SELECT ts, LAG(ts) OVER w AS prev, LEAD(ts) OVER w AS next
+      SELECT ts, MAX(1, COALESCE(interval_min, ?)) AS iv,
+        LAG(ts) OVER w AS prev, LAG(MAX(1, COALESCE(interval_min, ?))) OVER w AS prev_iv, LEAD(ts) OVER w AS next
       FROM checks WHERE site_id = ? AND ts >= ? AND ts < ?
       WINDOW w AS (ORDER BY ts)
+    ), d AS (
+      SELECT ts, iv, prev, next, MAX(3 * prev_iv * 60000, 7200000) AS prev_tol, MAX(3 * iv * 60000, 7200000) AS tol FROM c
     )
-    SELECT ts, prev, next FROM c WHERE prev IS NULL OR next IS NULL OR ts - prev > ? OR next - ts > ? ORDER BY ts`,
-  // look a little beyond both ends so continuity across the range boundaries is not lost
-  siteId, from - tol, to + tol, tol, tol);
+    SELECT ts, iv, prev, next, prev_tol, tol FROM d
+    WHERE prev IS NULL OR next IS NULL OR ts - prev > prev_tol OR next - ts > tol ORDER BY ts`,
+  // look beyond both ends so continuity across the range boundaries is not lost
+  current, current, siteId, from - MAX_TOLERANCE, to + MAX_TOLERANCE);
   const segs = [];
   let start = null;
   for (const r of rows) {
-    if (r.prev == null || r.ts - r.prev > tol) start = r.ts;
-    if (r.next == null || r.next - r.ts > tol) { segs.push([start, r.ts + iv]); start = null; }
+    if (r.prev == null || r.ts - r.prev > r.prev_tol) start = r.ts;
+    if (r.next == null || r.next - r.ts > r.tol) { segs.push([start, r.ts + r.iv * MIN]); start = null; }
   }
   return mergeIntervals(segs, from, to);
 }

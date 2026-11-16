@@ -28,7 +28,7 @@ export function makeSetupCode() {
  */
 export async function createApp({
   dataDir = './sitesteward-data', dbFile, dryRun = false, adapters, mailer, monitorOptions = {},
-  trustProxy = false, pdf, log = console, setupCode = makeSetupCode(),
+  trustProxy = false, pdf, log = console, setupCode = makeSetupCode(), tmpDir,
 } = {}) {
   let file = dbFile;
   if (!file) {
@@ -64,7 +64,7 @@ export async function createApp({
     onTick: (now) => runMonthlySchedule(db, { now, alerter, send: sendReportById, log }),
     ...monitorOptions,
   });
-  const handler = createHandler({ db, monitor, alerter, mailer: theMailer, pdf: pdfEngine, setupCode, dryRun, trustProxy, log });
+  const handler = createHandler({ db, monitor, alerter, mailer: theMailer, pdf: pdfEngine, setupCode, dryRun, trustProxy, log, tmpDir });
   const server = http.createServer(handler);
   server.headersTimeout = 30000;
   server.requestTimeout = 60000;

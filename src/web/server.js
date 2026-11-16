@@ -2,6 +2,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
+import { createBackupSnapshot } from '../backup.js';
 import { all, get, run } from '../db.js';
 import { getSettings, saveSettings } from '../settings.js';
 import {
@@ -81,7 +83,7 @@ function cleanLogo(v) {
   return ok;
 }
 
-export function createHandler({ db, monitor, alerter, mailer, pdf = { available: false }, setupCode, dryRun = false, trustProxy = false, log = console }) {
+export function createHandler({ db, monitor, alerter, mailer, pdf = { available: false }, setupCode, dryRun = false, trustProxy = false, log = console, tmpDir = os.tmpdir() }) {
   const limiter = createRateLimiter({ max: 10, windowMs: 15 * 60000 });
 
   const settings = () => getSettings(db);
@@ -508,26 +510,20 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
 
   // Consistent snapshot of the live database (VACUUM INTO works while sitesteward keeps running).
   on('GET', '/settings/backup', (ctx) => {
-    const file = path.join(os.tmpdir(), `sitesteward-backup-${process.pid}-${randomToken(8)}.db`);
-    const cleanup = () => fs.rm(file, { force: true }, () => {});
-    try {
-      db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
-    } catch (err) {
-      cleanup();
-      throw err;
-    }
+    const snap = createBackupSnapshot(db, tmpDir);
+    let size;
+    try { size = fs.statSync(snap.file).size; } catch (err) { snap.cleanup(); throw err; }
     const lp = localParts(Date.now(), settings().timezone);
     const day = `${lp.year}-${String(lp.month).padStart(2, '0')}-${String(lp.day).padStart(2, '0')}`;
     ctx.res.writeHead(200, {
       'content-type': 'application/vnd.sqlite3',
       'content-disposition': `attachment; filename="sitesteward-backup-${day}.db"`,
-      'content-length': fs.statSync(file).size,
+      'content-length': size,
       'cache-control': 'no-store',
     });
-    const stream = fs.createReadStream(file);
-    stream.on('close', cleanup);
-    stream.on('error', () => ctx.res.destroy());
-    stream.pipe(ctx.res);
+    // pipeline() also tears down the file stream when the download is aborted, so the private
+    // copy is always deleted: on success, on error and on a closed connection.
+    pipeline(fs.createReadStream(snap.file), ctx.res, () => snap.cleanup());
     return { handled: true };
   });
 
