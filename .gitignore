@@ -1,7 +1,7 @@
 node_modules/
 # runtime data: database, settings, secrets (SMTP / Telegram / webhooks) live here
 data/
-client-uptime-data/
+sitesteward-data/
 *.db
 *.db-wal
 *.db-shm
@@ -9,4 +9,4 @@ client-uptime-data/
 _tmp/
 SESSION_NOTES.md
 npm-debug.log*
-client-uptime-demo/
+sitesteward-demo/

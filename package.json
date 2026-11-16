@@ -1,10 +1,10 @@
 {
-  "name": "client-uptime",
+  "name": "sitesteward",
   "version": "0.1.0",
   "description": "Monitor your clients' websites and send them a beautiful, white-label monthly report under your own brand.",
   "type": "module",
   "bin": {
-    "client-uptime": "bin/client-uptime.js"
+    "sitesteward": "bin/sitesteward.js"
   },
   "main": "src/app.js",
   "files": [
@@ -15,7 +15,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node bin/client-uptime.js",
+    "start": "node bin/sitesteward.js",
     "test": "node --test --test-concurrency=1 \"test/*.test.js\""
   },
   "engines": {
@@ -34,5 +34,10 @@
     "self-hosted"
   ],
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/me7ko-dev/sitesteward.git"
+  },
+  "homepage": "https://github.com/me7ko-dev/sitesteward"
 }

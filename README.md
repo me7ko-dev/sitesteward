@@ -1,4 +1,4 @@
-# client-uptime
+# sitesteward
 
 **Monitor your clients' websites and send them a beautiful monthly report — under your own brand.**
 
@@ -16,7 +16,7 @@ Self-hosted, open source, zero dependencies. Built for freelancers and small web
 
 Tools like Uptime Kuma, Gatus or Upptime are great at *watching* websites. But if you build sites for clients, the hard part is not knowing that a site was down — it is **explaining to the client, every month, why paying you is worth it**.
 
-client-uptime is built around that monthly report:
+sitesteward is built around that monthly report:
 
 - **White-label report** with your logo and colours *and* the client's logo — uptime %, average speed, outages explained in plain words ("On 3 October at 14:05 the website was unreachable for 23 minutes – the server did not answer in time"), SSL and domain expiry, a hacking check, **what you did this month** and **next steps**.
 - **Work log**: jot down what you did for a client during the month; it lands in the next report automatically.
@@ -40,7 +40,7 @@ client-uptime is built around that monthly report:
 Requires **Node.js 22.13+** (it uses the built-in `node:sqlite`, so there is nothing else to install).
 
 ```bash
-npx client-uptime
+npx sitesteward
 ```
 
 Open http://localhost:3000, enter the **setup code** printed in the terminal, choose a password — done.
@@ -48,17 +48,17 @@ Open http://localhost:3000, enter the **setup code** printed in the terminal, ch
 Want to look around first? Start the demo (fictional data, no real checks, nothing is sent):
 
 ```bash
-npx client-uptime --demo        # password: demo-password
+npx sitesteward --demo        # password: demo-password
 ```
 
-> The npm package is not published yet. Until then: `git clone` this repository, then `node bin/client-uptime.js` (or `--demo`).
+> The npm package is not published yet. Until then: `git clone` this repository, then `node bin/sitesteward.js` (or `--demo`).
 
 ### Docker
 
 ```bash
-docker build -t client-uptime .
-docker run -d --name client-uptime -p 3000:3000 -v client-uptime-data:/data client-uptime
-docker logs client-uptime     # shows the setup code on first start
+docker build -t sitesteward .
+docker run -d --name sitesteward -p 3000:3000 -v sitesteward-data:/data sitesteward
+docker logs sitesteward     # shows the setup code on first start
 ```
 
 ### Options
@@ -67,7 +67,7 @@ docker logs client-uptime     # shows the setup code on first start
 | --- | --- | --- | --- |
 | `--port` | `PORT` | `3000` | |
 | `--host` | `HOST` | `127.0.0.1` | use `0.0.0.0` to accept outside connections (the Docker image does) |
-| `--data` | `DATA_DIR` | `./client-uptime-data` | database location |
+| `--data` | `DATA_DIR` | `./sitesteward-data` | database location |
 | `--dry-run` | `DRY_RUN=1` | off | never send e-mails or alerts, only log them |
 | `--trust-proxy` | `TRUST_PROXY=1` | off | behind nginx/Caddy/Traefik: trust `X-Forwarded-*` |
 | `--demo` | | off | fictional demo data |
@@ -98,7 +98,7 @@ npm install playwright && npx playwright install chromium
 - **Uptime %** = time without a confirmed outage ÷ monitored time in the month (monitoring starts at a site's first check, so a site added mid-month is not penalised). Months follow your time zone.
 - **Incident** = a confirmed failure (after retries). It starts at the first failed attempt and ends at the first successful check.
 - A **report** is a frozen snapshot: the numbers don't change after you send it. "Refresh numbers" rebuilds it; your notes are kept.
-- Everything is stored in `client-uptime-data/client-uptime.db` (SQLite). Back up that one file.
+- Everything is stored in `sitesteward-data/sitesteward.db` (SQLite). Back up that one file.
 
 ## Security
 
@@ -124,7 +124,7 @@ Project layout: `src/checks` (HTTP, TLS, RDAP, content), `src/monitor.js` (sched
 
 ## How it compares
 
-| | client-uptime | Uptime Kuma | Gatus | Upptime | Paid SaaS (UptimeRobot, Better Stack, ManageWP reports, …) |
+| | sitesteward | Uptime Kuma | Gatus | Upptime | Paid SaaS (UptimeRobot, Better Stack, ManageWP reports, …) |
 | --- | --- | --- | --- | --- | --- |
 | Self-hosted, free | ✅ | ✅ | ✅ | ✅ (GitHub Actions) | ❌ |
 | Monthly white-label client report | ✅ | ❌ | ❌ | ❌ | ✅ (paid plans / add-ons) |
@@ -137,7 +137,7 @@ If you need dozens of monitor types, use Uptime Kuma. If you need to **show clie
 ## Limits (honest list)
 
 - Checks are HTTP(S) only (no ping/TCP/DNS monitors yet).
-- Response time is measured from wherever you run client-uptime; it is the homepage HTML only (not images/scripts), not a full browser page-speed test.
+- Response time is measured from wherever you run sitesteward; it is the homepage HTML only (not images/scripts), not a full browser page-speed test.
 - The hacking check looks at the homepage HTML for known spam words and title changes. It is an early warning, not a malware scanner.
 - Domain expiry depends on the registry offering RDAP with an expiry date.
 - One agency account (single password) per installation.

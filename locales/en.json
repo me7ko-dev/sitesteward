@@ -35,7 +35,7 @@
     "reportsTitle": "📄 Client reports for {month}",
     "reportsDraft": { "one": "{created} report is ready as a draft. Add what you did this month, then press Send.", "other": "{created} reports are ready as drafts. Add what you did this month, then press Send." },
     "reportsSent": "{created} reports created, {sent} e-mailed to clients.",
-    "testTitle": "client-uptime test alert",
+    "testTitle": "sitesteward test alert",
     "testText": "If you can read this, alerts work. 👍"
   },
   "email": {
@@ -144,10 +144,10 @@
     "logoHelp": "PNG, JPG, WebP or SVG, up to 300 KB.",
     "removeLogo": "Remove logo",
     "setup": {
-      "title": "Welcome to client-uptime",
+      "title": "Welcome to sitesteward",
       "intro": "Create the password for your agency panel. You will need it every time you log in.",
       "code": "Setup code",
-      "codeHelp": "Shown in the terminal / container log where client-uptime was started. It proves you own this server.",
+      "codeHelp": "Shown in the terminal / container log where sitesteward was started. It proves you own this server.",
       "password": "Password (at least 10 characters)",
       "password2": "Repeat password",
       "submit": "Create my panel"
@@ -316,7 +316,7 @@
       "wrongPassword": "Wrong password.",
       "shortPassword": "The password must be at least 10 characters.",
       "passwordMismatch": "The passwords do not match.",
-      "setupCode": "Wrong setup code. Look in the terminal where client-uptime was started.",
+      "setupCode": "Wrong setup code. Look in the terminal where sitesteward was started.",
       "tooMany": "Too many attempts. Try again in 15 minutes."
     },
     "flash": {

@@ -2,8 +2,8 @@
 .github
 node_modules
 data
-client-uptime-data
-client-uptime-demo
+sitesteward-data
+sitesteward-demo
 _tmp
 docs
 test

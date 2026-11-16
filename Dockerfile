@@ -1,4 +1,4 @@
-# client-uptime – zero runtime dependencies, so the image is just Node + the source.
+# sitesteward – zero runtime dependencies, so the image is just Node + the source.
 FROM node:22-alpine
 
 ENV NODE_ENV=production \
@@ -20,4 +20,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s \
   CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
 
-CMD ["node", "bin/client-uptime.js"]
+CMD ["node", "bin/sitesteward.js"]

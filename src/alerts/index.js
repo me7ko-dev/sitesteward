@@ -33,7 +33,7 @@ export function realAdapters({ fetchImpl = fetch, mailer = sendMail } = {}) {
         const headers = {
           'content-type': 'text/plain; charset=utf-8',
           // HTTP header values must be ASCII; non-ASCII titles go in the body instead.
-          Title: /^[\x20-\x7e]*$/.test(msg.title) ? msg.title : 'client-uptime alert',
+          Title: /^[\x20-\x7e]*$/.test(msg.title) ? msg.title : 'sitesteward alert',
           Priority: msg.severity === 'critical' ? 'high' : 'default',
           Tags: msg.severity === 'critical' ? 'rotating_light' : (msg.severity === 'ok' ? 'white_check_mark' : 'warning'),
         };

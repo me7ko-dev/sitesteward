@@ -27,13 +27,13 @@ export function makeSetupCode() {
  * @param {Function} [o.mailer]       e-mail sender (tests pass a fake)
  */
 export async function createApp({
-  dataDir = './client-uptime-data', dbFile, dryRun = false, adapters, mailer, monitorOptions = {},
+  dataDir = './sitesteward-data', dbFile, dryRun = false, adapters, mailer, monitorOptions = {},
   trustProxy = false, pdf, log = console, setupCode = makeSetupCode(),
 } = {}) {
   let file = dbFile;
   if (!file) {
     fs.mkdirSync(dataDir, { recursive: true });
-    file = path.join(dataDir, 'client-uptime.db');
+    file = path.join(dataDir, 'sitesteward.db');
   }
   const db = openDb(file);
   const sink = [];

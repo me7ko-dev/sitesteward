@@ -1,4 +1,4 @@
-// `client-uptime --demo`: a fictional agency with fictional clients and 75 days of synthetic history,
+// `sitesteward --demo`: a fictional agency with fictional clients and 75 days of synthetic history,
 // so you can click around and see a full monthly report without waiting a month.
 // Demo mode never runs real checks and never sends anything.
 import { all, run, tx } from './db.js';

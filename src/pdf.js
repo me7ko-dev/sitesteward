@@ -1,4 +1,4 @@
-// Optional server-side PDF. client-uptime has zero dependencies, so this only works if you
+// Optional server-side PDF. sitesteward has zero dependencies, so this only works if you
 // install a headless browser yourself:  npm install playwright && npx playwright install chromium
 // Without it, the report page has a "Save as PDF" button that uses the browser's print dialog
 // (the report has a dedicated A4 print layout).

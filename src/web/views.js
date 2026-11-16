@@ -25,13 +25,13 @@ export function layout({ lang, title, body, nav = true, settings, flash, csrf })
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${title} · client-uptime</title>
+<title>${title} · sitesteward</title>
 <link rel="stylesheet" href="/static/panel.css">
 <style>:root{--brand:${brand}}</style>
 </head>
 <body>
 ${nav ? html`<header class="top">
-  <a class="brand" href="/">${logo ? html`<img src="${logo}" alt="">` : html`<span class="mark"></span>`}<span>${settings?.agency?.name || 'client-uptime'}</span></a>
+  <a class="brand" href="/">${logo ? html`<img src="${logo}" alt="">` : html`<span class="mark"></span>`}<span>${settings?.agency?.name || 'sitesteward'}</span></a>
   <nav>
     <a href="/">${t(lang, 'panel.nav.dashboard')}</a>
     <a href="/clients/new">${t(lang, 'panel.nav.addClient')}</a>
