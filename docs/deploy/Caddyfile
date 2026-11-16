@@ -1,0 +1,5 @@
+# Caddy gets and renews the HTTPS certificate automatically.
+# Then start sitesteward with --trust-proxy and set Settings → Public URL to https://monitor.example.com
+monitor.example.com {
+	reverse_proxy 127.0.0.1:3000
+}

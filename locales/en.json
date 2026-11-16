@@ -4,7 +4,9 @@
     "lessThanMinute": "less than a minute",
     "d": "{n} d",
     "h": "{n} h",
-    "min": "{n} min"
+    "min": "{n} min",
+    "ms": "{n} ms",
+    "s": "{n} s"
   },
   "reasons": {
     "timeout": "the server did not answer in time",
@@ -311,7 +313,7 @@
       "changePassword": "Change password",
       "keepSecret": "•••••• (saved – leave empty to keep)",
       "backup": "Backup",
-      "backupHelp": "Downloads a consistent copy of the whole database: clients, check history, reports and settings – including the saved SMTP and alert passwords. Keep it somewhere safe. To restore: stop sitesteward, then replace sitesteward.db in the data directory with this file.",
+      "backupHelp": "Downloads a consistent copy of the whole database: clients, check history, reports and settings – including the saved SMTP and alert passwords. Keep it somewhere safe. To restore: stop sitesteward, then replace sitesteward.db in the data directory with this file (and delete sitesteward.db-wal / -shm next to it, if present).",
       "backupDownload": "Download backup",
       "dryRun": "DRY RUN mode: nothing is really sent. Alerts and e-mails are only written to the log."
     },

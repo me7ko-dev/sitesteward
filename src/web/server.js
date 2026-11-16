@@ -546,7 +546,13 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
         return;
       }
       if (p === '/favicon.ico') { redirect(res, '/static/favicon.svg'); return; }
-      if (p === '/healthz') { send(res, 200, 'ok', { 'content-type': 'text/plain' }); return; }
+      if (p === '/healthz') {
+        // for Docker / uptime checks of sitesteward itself: the database must answer
+        let ok = true;
+        try { db.prepare('SELECT 1').get(); } catch { ok = false; }
+        send(res, ok ? 200 : 503, ok ? 'ok' : 'database unavailable', { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        return;
+      }
       let m;
       if (req.method === 'GET' && (m = /^\/r\/([A-Za-z0-9_-]{20,64})(\/pdf)?$/.exec(p))) { await publicReport(req, res, m[1], Boolean(m[2])); return; }
       if (req.method === 'GET' && (m = /^\/status\/([A-Za-z0-9_-]{16,64})$/.exec(p))) { statusPage(req, res, m[1]); return; }

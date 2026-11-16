@@ -1,6 +1,6 @@
 {
   "name": "sitesteward",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Monitor your clients' websites and send them a beautiful, white-label monthly report under your own brand.",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
     "src",
     "locales",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

@@ -1,0 +1,37 @@
+# systemd unit for sitesteward (Linux).
+#
+#   sudo useradd --system --create-home --home-dir /opt/sitesteward sitesteward
+#   sudo -u sitesteward git clone https://github.com/me7ko-dev/sitesteward.git /opt/sitesteward/app
+#   sudo cp /opt/sitesteward/app/docs/deploy/sitesteward.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sitesteward
+#   journalctl -u sitesteward -n 20      # shows the setup code on the first start
+#
+# Update: cd /opt/sitesteward/app && sudo -u sitesteward git pull && sudo systemctl restart sitesteward
+
+[Unit]
+Description=sitesteward – website monitoring and monthly client reports
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sitesteward
+WorkingDirectory=/opt/sitesteward/app
+ExecStart=/usr/bin/node bin/sitesteward.js --data /var/lib/sitesteward --port 3000 --host 127.0.0.1
+# behind Caddy/nginx on the same machine add: --trust-proxy
+Restart=always
+RestartSec=5
+# a clean stop lets running checks finish
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# /var/lib/sitesteward is created by systemd, owned by the service user and writable
+StateDirectory=sitesteward
+
+[Install]
+WantedBy=multi-user.target

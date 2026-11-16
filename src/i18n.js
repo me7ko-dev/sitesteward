@@ -83,8 +83,8 @@ export function formatBytes(lang, bytes) {
 
 export function formatMs(lang, ms) {
   if (ms == null) return '—';
-  if (ms < 1000) return `${formatNumber(lang, ms)} ms`;
-  return `${formatNumber(lang, ms / 1000, 2)} s`;
+  if (ms < 1000) return t(lang, 'units.ms', { n: formatNumber(lang, ms) });
+  return t(lang, 'units.s', { n: formatNumber(lang, ms / 1000, 2) });
 }
 
 /** Uptime % that never rounds 99.996 with real downtime up to "100". */
