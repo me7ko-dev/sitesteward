@@ -1,5 +1,6 @@
 // HTTP server: agency panel (login, CSRF), public report links and status pages.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { all, get, run } from '../db.js';
@@ -333,7 +334,15 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     run(db, 'UPDATE sites SET name = ?, url = ?, keyword = ?, domain = ?, ignore_words = ?, interval_min = ?, enabled = ? WHERE id = ?',
       s.name, s.url, s.keyword, s.domain, s.ignore_words, s.interval_min, enabled, id);
     if (old.url !== s.url || old.domain !== s.domain) {
-      run(db, 'UPDATE sites SET title_baseline = NULL, ssl_checked_at = NULL, domain_checked_at = NULL WHERE id = ?', id);
+      run(db, 'UPDATE sites SET title_baseline = NULL, ssl_checked_at = NULL, domain_checked_at = NULL, ssl_warned_days = NULL, domain_warned_days = NULL WHERE id = ?', id);
+    }
+    if (old.enabled && !enabled) {
+      // Paused: close whatever is open, so a paused site is never "down for weeks" in a report.
+      const ts = Date.now();
+      run(db, 'UPDATE incidents SET ended_at = ? WHERE site_id = ? AND ended_at IS NULL', ts, id);
+      run(db, "UPDATE sites SET state = 'paused' WHERE id = ?", id);
+    } else if (!old.enabled && enabled) {
+      run(db, "UPDATE sites SET state = 'unknown', last_check_at = NULL WHERE id = ?", id);
     }
     return { redirect: `/sites/${id}`, flash: ['ok', t(ctx.lang, 'panel.flash.saved')] };
   });
@@ -363,7 +372,14 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     })];
   });
 
+  const getReport = (id) => {
+    const report = get(db, 'SELECT * FROM reports WHERE id = ?', id);
+    if (!report) throw new HttpError(404, 'Not found');
+    return report;
+  };
+
   on('POST', '/reports/(\\d+)', (ctx, id) => {
+    getReport(id);
     run(db, 'UPDATE reports SET work_done = ?, next_steps = ?, updated_at = ? WHERE id = ?',
       str(ctx.form.get('work_done'), 5000), str(ctx.form.get('next_steps'), 5000), Date.now(), id);
     return { redirect: `/reports/${id}`, flash: ['ok', t(ctx.lang, 'panel.flash.saved')] };
@@ -377,6 +393,7 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
   });
 
   on('POST', '/reports/(\\d+)/rotate', (ctx, id) => {
+    getReport(id);
     run(db, 'UPDATE reports SET token = ? WHERE id = ?', newToken(), id);
     return { redirect: `/reports/${id}`, flash: ['ok', t(ctx.lang, 'panel.flash.rotated')] };
   });
@@ -468,6 +485,30 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
     return { redirect: '/settings', flash: r?.ok ? ['ok', t(ctx.lang, 'panel.flash.testOk', { channel: ch })] : ['bad', `${ch}: ${r?.error || 'failed'}`] };
   });
 
+  // Consistent snapshot of the live database (VACUUM INTO works while sitesteward keeps running).
+  on('GET', '/settings/backup', (ctx) => {
+    const file = path.join(os.tmpdir(), `sitesteward-backup-${process.pid}-${randomToken(8)}.db`);
+    const cleanup = () => fs.rm(file, { force: true }, () => {});
+    try {
+      db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+    } catch (err) {
+      cleanup();
+      throw err;
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    ctx.res.writeHead(200, {
+      'content-type': 'application/vnd.sqlite3',
+      'content-disposition': `attachment; filename="sitesteward-backup-${day}.db"`,
+      'content-length': fs.statSync(file).size,
+      'cache-control': 'no-store',
+    });
+    const stream = fs.createReadStream(file);
+    stream.on('close', cleanup);
+    stream.on('error', () => ctx.res.destroy());
+    stream.pipe(ctx.res);
+    return { handled: true };
+  });
+
   on('POST', '/settings/password', (ctx) => {
     if (!checkPassword(db, ctx.form.get('current'))) throw new HttpError(400, t(ctx.lang, 'panel.errors.wrongPassword'));
     const pw = String(ctx.form.get('password') || '');
@@ -525,7 +566,9 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
           const chosen = hasLang(form.get('lang')) ? form.get('lang') : lang;
           const err = (key) => page(req, res, { lang: chosen }, t(chosen, 'panel.setup.title'),
             V.setupPage({ lang: chosen, csrf: pre, error: t(chosen, key), values: { agency: form.get('agency') } }), 400, [preCookie]);
-          if (!safeEqual(String(form.get('code') || '').trim().toUpperCase(), setupCode)) return err('panel.errors.setupCode');
+          const ip = clientIp(req);
+          if (limiter.blocked(ip)) return err('panel.errors.tooMany');
+          if (!safeEqual(String(form.get('code') || '').trim().toUpperCase(), setupCode)) { limiter.fail(ip); return err('panel.errors.setupCode'); }
           const pw = String(form.get('password') || '');
           if (pw.length < 10) return err('panel.errors.shortPassword');
           if (pw !== form.get('password2')) return err('panel.errors.passwordMismatch');
@@ -585,6 +628,7 @@ export function createHandler({ db, monitor, alerter, mailer, pdf = { available:
         if (!mm) continue;
         const out = await r.handler(ctx, ...mm.slice(1).map(Number));
         if (Array.isArray(out)) { page(req, res, ctx, out[0], out[1]); return; }
+        if (out.handled) return;
         const extra = out.cookies || [];
         if (out.flash) extra.push(flash(req, out.flash[0], out.flash[1]));
         redirect(res, out.redirect, extra);

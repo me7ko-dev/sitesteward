@@ -175,3 +175,71 @@ test('settings: secrets are not echoed back into the page', async () => {
   assert.equal(after.smtp.pass, 'super-secret-smtp-pass');
   assert.equal(after.alerts.telegram.botToken, '123456:SECRET-BOT-TOKEN');
 });
+
+test('pausing a site closes its open incidents and hides "check now"; resuming starts fresh', async () => {
+  const b = ctx.b;
+  const s = get(ctx.app.db, 'SELECT * FROM sites');
+  site.state.mode = 'error';
+  await b.post(`/sites/${s.id}/check`, { _csrf: b.csrf });
+  site.state.mode = 'ok';
+  assert.equal(get(ctx.app.db, 'SELECT state FROM sites').state, 'down');
+  assert.equal(all(ctx.app.db, "SELECT * FROM incidents WHERE kind = 'down' AND ended_at IS NULL").length, 1);
+  const form = { _csrf: b.csrf, name: s.name, url: s.url, interval_min: '5' }; // no "enabled" = paused
+  assert.equal((await b.post(`/sites/${s.id}`, form)).status, 303);
+  assert.equal(get(ctx.app.db, 'SELECT state FROM sites').state, 'paused');
+  assert.equal(all(ctx.app.db, 'SELECT * FROM incidents WHERE ended_at IS NULL').length, 0);
+  const page = await b.get(`/sites/${s.id}`);
+  assert.match(page.text, /Monitoring is paused/);
+  assert.doesNotMatch(page.text, /action="\/sites\/\d+\/check"/);
+  const home = await b.get('/');
+  assert.match(home.text, /<span class="badge">paused<\/span>/);
+  await b.post(`/sites/${s.id}`, { ...form, enabled: '1' });
+  assert.equal(get(ctx.app.db, 'SELECT state FROM sites').state, 'unknown');
+});
+
+test('backup: logged-in users can download a consistent copy of the database', async () => {
+  const r = await fetch(`${ctx.base}/settings/backup`, { headers: { cookie: `cu_session=${ctx.b.jar.get('cu_session')}` } });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-disposition'), /attachment; filename="sitesteward-backup-\d{4}-\d{2}-\d{2}\.db"/);
+  const buf = Buffer.from(await r.arrayBuffer());
+  assert.equal(buf.subarray(0, 15).toString('latin1'), 'SQLite format 3');
+  // and it is a working database with our data in it
+  const { openDb } = await import('../src/db.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const file = path.join(os.tmpdir(), `ss-backup-test-${process.pid}.db`);
+  fs.writeFileSync(file, buf);
+  const copy = openDb(file);
+  assert.equal(get(copy, 'SELECT name FROM clients').name, 'Seaside Hotel');
+  copy.close();
+  fs.rmSync(file, { force: true });
+  for (const ext of ['-wal', '-shm']) fs.rmSync(file + ext, { force: true });
+  // not without a session
+  assert.equal((await browser(ctx.base).get('/settings/backup')).location, '/login');
+});
+
+test('unknown report ids give 404 instead of a silent no-op', async () => {
+  const b = ctx.b;
+  assert.equal((await b.post('/reports/9999', { _csrf: b.csrf, work_done: 'x' })).status, 404);
+  assert.equal((await b.post('/reports/9999/rotate', { _csrf: b.csrf })).status, 404);
+  assert.equal((await b.get('/reports/9999')).status, 404);
+});
+
+test('setup code guessing is rate-limited', async () => {
+  const fresh = await startApp();
+  try {
+    const b = browser(fresh.base);
+    const page = await b.get('/setup');
+    const csrf = csrfFrom(page.text);
+    let last;
+    for (let i = 0; i < 11; i++) last = await b.post('/setup', { _csrf: csrf, code: `AAAA-${String(i).padStart(4, 'B')}`, agency: 'A', password: 'x'.repeat(12), password2: 'x'.repeat(12) });
+    assert.match(last.text, /Too many attempts/);
+    // even the right code is refused while blocked
+    const right = await b.post('/setup', { _csrf: csrf, code: fresh.app.setupCode, agency: 'A', password: 'x'.repeat(12), password2: 'x'.repeat(12) });
+    assert.equal(right.status, 400);
+    assert.equal(fresh.app.needsSetup(), true);
+  } finally {
+    await fresh.close();
+  }
+});

@@ -181,6 +181,8 @@
       "ignore": "Ignore these spam words",
       "ignoreHelp": "For example \"casino\" for a hotel next to a casino.",
       "enabled": "Monitoring enabled",
+      "paused": "paused",
+      "pausedHelp": "Monitoring is paused for this website. Paused time is not counted in uptime or reports.",
       "add": "Add website",
       "checkNow": "Check now",
       "spamFound": "Suspicious words",
@@ -307,6 +309,9 @@
       "newPassword": "New password",
       "changePassword": "Change password",
       "keepSecret": "•••••• (saved – leave empty to keep)",
+      "backup": "Backup",
+      "backupHelp": "Downloads a consistent copy of the whole database: clients, check history, reports and settings – including the saved SMTP and alert passwords. Keep it somewhere safe. To restore: stop sitesteward, then replace sitesteward.db in the data directory with this file.",
+      "backupDownload": "Download backup",
       "dryRun": "DRY RUN mode: nothing is really sent. Alerts and e-mails are only written to the log."
     },
     "errors": {

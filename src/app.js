@@ -78,11 +78,14 @@ export async function createApp({
         server.listen(port, host, () => resolve(server.address()));
       });
     },
+    /** Graceful stop: no new checks, let running ones finish (max 5 s), close HTTP, then the database. */
     async close() {
-      monitor.stop();
-      await new Promise((r) => server.close(() => r()));
-      server.closeAllConnections?.();
-      db.close();
+      const checksDone = monitor.stop(5000);
+      const httpDone = new Promise((r) => server.close(() => r()));
+      server.closeIdleConnections?.();
+      setTimeout(() => server.closeAllConnections?.(), 3000).unref();
+      await Promise.all([checksDone, httpDone]);
+      if (db.isOpen !== false) db.close();
     },
   };
 }

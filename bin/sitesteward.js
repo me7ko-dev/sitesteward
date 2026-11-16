@@ -14,6 +14,9 @@ if (major < 22 || (major === 22 && minor < 13)) {
   process.exit(1);
 }
 
+import fs from 'node:fs';
+
+const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const args = process.argv.slice(2);
 function opt(name, env, def) {
   const i = args.indexOf(`--${name}`);
@@ -21,6 +24,11 @@ function opt(name, env, def) {
   const eq = args.find((a) => a.startsWith(`--${name}=`));
   if (eq) return eq.slice(name.length + 3);
   return process.env[env] ?? def;
+}
+
+if (args.includes('--version') || args.includes('-v')) {
+  console.log(version);
+  process.exit(0);
 }
 
 if (args.includes('--help') || args.includes('-h')) {
@@ -36,7 +44,10 @@ Options:
   --trust-proxy    Trust X-Forwarded-* headers from a reverse proxy (env TRUST_PROXY=1)
   --demo           Start with a fictional agency, clients and 75 days of sample data
                    (no real checks, nothing is sent; data in ./sitesteward-demo)
+  -v, --version    Print the version
   -h, --help       Show this help
+
+Docs: https://github.com/me7ko-dev/sitesteward#readme
 `);
   process.exit(0);
 }
@@ -44,22 +55,43 @@ Options:
 const { createApp } = await import('../src/app.js');
 
 const port = Number(opt('port', 'PORT', '3000'));
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  console.error(`Invalid port: ${opt('port', 'PORT', '3000')}`);
+  process.exit(1);
+}
 const host = opt('host', 'HOST', '127.0.0.1');
 const demo = args.includes('--demo');
 const dataDir = opt('data', 'DATA_DIR', demo ? './sitesteward-demo' : './sitesteward-data');
 const dryRun = demo || args.includes('--dry-run') || process.env.DRY_RUN === '1';
 const trustProxy = args.includes('--trust-proxy') || process.env.TRUST_PROXY === '1';
 
-const app = await createApp({ dataDir, dryRun, trustProxy });
+let app;
+try {
+  app = await createApp({ dataDir, dryRun, trustProxy });
+} catch (err) {
+  console.error(`Could not open the database in ${dataDir}: ${err.message}`);
+  process.exit(1);
+}
 if (demo) {
   const { seedDemo } = await import('../src/demo.js');
   seedDemo(app.db);
 }
-await app.listen(port, host);
+try {
+  await app.listen(port, host);
+} catch (err) {
+  console.error(err.code === 'EADDRINUSE'
+    ? `Port ${port} is already in use. Is sitesteward already running? Use --port to pick another one.`
+    : `Could not listen on ${host}:${port}: ${err.message}`);
+  await app.close().catch(() => {});
+  process.exit(1);
+}
 if (!demo) app.monitor.start();
 
+// A stray rejected promise must never stop the monitoring of all sites.
+process.on('unhandledRejection', (err) => console.error('[unhandled]', err));
+
 const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
-console.log(`sitesteward is running → http://${shown}:${port}   (pid ${process.pid})`);
+console.log(`sitesteward ${version} is running → http://${shown}:${port}   (pid ${process.pid})`);
 console.log(`Data directory: ${dataDir}${dryRun ? '   [DRY RUN: nothing is sent]' : ''}`);
 if (demo) {
   const { DEMO_PASSWORD } = await import('../src/demo.js');

@@ -6,8 +6,9 @@ import {
 
 const csrfField = (csrf) => html`<input type="hidden" name="_csrf" value="${csrf}">`;
 
-function stateDot(state) {
-  return html`<span class="dot ${state === 'up' ? 'up' : state === 'down' ? 'down' : 'unknown'}"></span>`;
+function stateDot(state, lang) {
+  const cls = state === 'up' || state === 'down' || state === 'paused' ? state : 'unknown';
+  return html`<span class="dot ${cls}"${cls === 'paused' && lang ? html` title="${t(lang, 'panel.site.paused')}"` : ''}></span>`;
 }
 
 function daysBadge(lang, days, warnAt, badAt) {
@@ -98,8 +99,8 @@ ${clients.map((c) => html`<section class="card client">
   ${c.sites.length ? html`<div class="tablewrap"><table>
     <thead><tr><th></th><th>${t(lang, 'panel.site.name')}</th><th>${t(lang, 'panel.dash.response')}</th><th>${t(lang, 'panel.dash.uptime30')}</th><th>SSL</th><th>${t(lang, 'panel.dash.domain')}</th><th>${t(lang, 'panel.dash.lastCheck')}</th></tr></thead>
     <tbody>${c.sites.map((s) => html`<tr>
-      <td>${stateDot(s.state)}</td>
-      <td><a href="/sites/${s.id}">${s.name}</a><div class="sub">${s.url}</div>${s.spam_hits ? html`<div class="badge bad">${t(lang, 'panel.site.spamFound')}: ${s.spam_hits}</div>` : ''}${s.state === 'down' && s.last_error ? html`<div class="sub bad">${s.last_error}</div>` : ''}</td>
+      <td>${stateDot(s.state, lang)}</td>
+      <td><a href="/sites/${s.id}">${s.name}</a>${s.enabled ? '' : html` <span class="badge">${t(lang, 'panel.site.paused')}</span>`}<div class="sub">${s.url}</div>${s.spam_hits ? html`<div class="badge bad">${t(lang, 'panel.site.spamFound')}: ${s.spam_hits}</div>` : ''}${s.state === 'down' && s.last_error ? html`<div class="sub bad">${s.last_error}</div>` : ''}</td>
       <td>${formatMs(lang, s.last_response_ms)}</td>
       <td>${formatPct(lang, s.uptime30)}</td>
       <td>${s.ssl_error ? html`<span class="badge bad">${t(lang, 'panel.site.sslError')}</span>` : daysBadge(lang, s.sslDays, 21, 7)}</td>
@@ -166,9 +167,9 @@ export function clientPage({ lang, csrf, client, sites, reports, work, statusUrl
 <section class="card">
   <h2>${t(lang, 'panel.client.sites')}</h2>
   ${sites.length ? html`<div class="tablewrap"><table><tbody>${sites.map((s) => html`<tr>
-    <td>${stateDot(s.state)}</td><td><a href="/sites/${s.id}">${s.name}</a><div class="sub">${s.url}</div></td>
-    <td>${formatMs(lang, s.last_response_ms)}</td><td>${formatPct(lang, s.uptime30)}</td>
-    <td class="right"><form method="post" action="/sites/${s.id}/check" class="inline">${csrfField(csrf)}<button class="btn ghost small">${t(lang, 'panel.site.checkNow')}</button></form></td>
+    <td>${stateDot(s.state, lang)}</td><td><a href="/sites/${s.id}">${s.name}</a>${s.enabled ? '' : html` <span class="badge">${t(lang, 'panel.site.paused')}</span>`}<div class="sub">${s.url}</div></td>
+    <td class="nowrap">${formatMs(lang, s.last_response_ms)}</td><td class="nowrap">${formatPct(lang, s.uptime30)}</td>
+    <td class="right">${s.enabled ? html`<form method="post" action="/sites/${s.id}/check" class="inline">${csrfField(csrf)}<button class="btn ghost small">${t(lang, 'panel.site.checkNow')}</button></form>` : ''}</td>
   </tr>`)}</tbody></table></div>` : html`<p class="muted">${t(lang, 'panel.client.noSites')}</p>`}
   <details ${sites.length ? '' : 'open'} class="add"><summary>+ ${t(lang, 'panel.site.add')}</summary>
     ${siteForm({ lang, csrf, action: `/clients/${client.id}/sites`, defaultInterval })}
@@ -209,9 +210,10 @@ export function sitePage({ lang, csrf, site, client, checks, incidents, tz, upti
   return html`
 <p class="crumbs"><a href="/clients/${client.id}">← ${client.name}</a></p>
 <div class="pagehead">
-  <div><h1>${stateDot(site.state)} ${site.name}</h1><p class="muted"><a href="${site.url}" target="_blank" rel="noopener noreferrer">${site.url}</a></p></div>
-  <form method="post" action="/sites/${site.id}/check">${csrfField(csrf)}<button class="btn">${t(lang, 'panel.site.checkNow')}</button></form>
+  <div><h1>${stateDot(site.state, lang)} ${site.name}</h1><p class="muted"><a href="${site.url}" target="_blank" rel="noopener noreferrer">${site.url}</a></p></div>
+  ${site.enabled ? html`<form method="post" action="/sites/${site.id}/check">${csrfField(csrf)}<button class="btn">${t(lang, 'panel.site.checkNow')}</button></form>` : ''}
 </div>
+${site.enabled ? '' : html`<div class="flash warn">${t(lang, 'panel.site.pausedHelp')}</div>`}
 <div class="stats">
   <div class="stat"><span>${t(lang, 'panel.dash.uptime30')}</span><b>${formatPct(lang, uptime30)}</b></div>
   <div class="stat"><span>${t(lang, 'panel.dash.response')}</span><b>${formatMs(lang, site.last_response_ms)}</b></div>
@@ -351,6 +353,12 @@ ${csrfField(csrf)}
     ${['telegram', 'email', 'ntfy', 'webhook'].map((ch) => html`<form method="post" action="/settings/test-alert" class="inline">${csrfField(csrf)}<input type="hidden" name="channel" value="${ch}"><button class="btn ghost small">${t(lang, 'panel.settings.testChannel', { channel: ch })}</button></form>`)}
   </div>
   ${alertLog.length ? html`<div class="tablewrap"><table class="compact"><tbody>${alertLog.map((l) => html`<tr><td>${stateDot(l.ok ? 'up' : 'down')}</td><td class="small">${formatDateTime(lang, l.ts, tz)}</td><td class="small">${l.channel}</td><td class="small">${l.title}</td><td class="small bad">${l.error || ''}</td></tr>`)}</tbody></table></div>` : ''}
+</section>
+
+<section class="card">
+  <h2>${t(lang, 'panel.settings.backup')}</h2>
+  <p class="muted small">${t(lang, 'panel.settings.backupHelp')}</p>
+  <a class="btn ghost" href="/settings/backup" download>${t(lang, 'panel.settings.backupDownload')}</a>
 </section>
 
 <section class="card">
