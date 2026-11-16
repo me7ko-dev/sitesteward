@@ -80,7 +80,7 @@ function summarySentence(lang, data) {
     ? t(lang, 'report.summary.incidents', { count: s.incidents, duration: formatDuration(lang, s.downMs) })
     : t(lang, 'report.summary.noIncidents'));
   if (s.avgMs != null) parts.push(t(lang, `report.summary.speed.${speedGrade(s.avgMs)}`, { ms: formatMs(lang, s.avgMs) }));
-  parts.push(t(lang, s.secure ? 'report.summary.secure' : 'report.summary.insecure'));
+  if (s.securityChecked !== false || !s.secure) parts.push(t(lang, s.secure ? 'report.summary.secure' : 'report.summary.insecure'));
   return parts.join(' ');
 }
 
@@ -91,7 +91,7 @@ body{margin:0;background:#f3f4f6;color:#111827;font:15px/1.55 ${FONT};-webkit-fo
 .page{max-width:880px;margin:0 auto;background:#fff;min-height:100vh;box-shadow:0 1px 30px rgba(17,24,39,.06)}
 .toolbar{max-width:880px;margin:0 auto;display:flex;justify-content:flex-end;gap:8px;padding:12px 16px}
 .toolbar a,.toolbar button{font:600 13px ${FONT};border:1px solid #d1d5db;background:#fff;color:#111827;border-radius:999px;padding:7px 14px;cursor:pointer;text-decoration:none}
-.cover{position:relative;padding:40px 48px 36px;background:linear-gradient(135deg,var(--brand) 0%,var(--brand-2) 100%);color:var(--on-brand);overflow:hidden}
+.cover{position:relative;padding:40px 48px 86px;background:linear-gradient(135deg,var(--brand) 0%,var(--brand-2) 100%);color:var(--on-brand);overflow:hidden}
 .cover:after{content:"";position:absolute;right:-80px;top:-80px;width:280px;height:280px;border-radius:50%;background:rgba(255,255,255,.08)}
 .brandrow{display:flex;justify-content:space-between;align-items:center;gap:16px;position:relative;z-index:1}
 .logo{height:44px;max-width:180px;object-fit:contain;background:#fff;border-radius:10px;padding:6px 10px}
@@ -137,9 +137,9 @@ ul.incidents li:before{background:#ef4444;border-radius:50%}
 .empty{color:#6b7280;font-style:italic}
 footer{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;border-top:1px solid #e5e7eb;margin-top:36px;padding-top:18px;font-size:13px;color:#6b7280}
 footer a{color:inherit}
-@media (max-width:720px){.cover{padding:28px 22px}.body{padding:24px 18px 32px}.kpis{grid-template-columns:repeat(2,1fr)}.facts,.two{grid-template-columns:1fr}h1{font-size:30px}}
+@media (max-width:720px){.cover{padding:28px 22px 84px}.body{padding:24px 18px 32px}.kpis{grid-template-columns:repeat(2,1fr)}.facts,.two{grid-template-columns:1fr}h1{font-size:30px}}
 @page{size:A4;margin:10mm}
-@media print{body{background:#fff;font-size:13px}.toolbar{display:none}.page{box-shadow:none;max-width:none}.cover{padding:28px 32px}.body{padding:24px 32px}.kpi{box-shadow:none}h2{break-after:avoid}}
+@media print{body{background:#fff;font-size:13px}.toolbar{display:none}.page{box-shadow:none;max-width:none}.cover{padding:28px 32px 84px}.body{padding:24px 32px}.kpi{box-shadow:none}h2{break-after:avoid}}
 `;
 
 export function renderReportPage({ data, report, lang, pdfAvailable = false }) {
@@ -175,7 +175,7 @@ export function renderReportPage({ data, report, lang, pdfAvailable = false }) {
         <div class="fact"><span class="dot ${speedGrade(site.avgMs) === 'slow' ? 'warn' : speedGrade(site.avgMs) === 'none' ? '' : 'good'}"></span><div><b>${t(lang, 'report.avgResponse')}</b>${formatMs(lang, site.avgMs)} ${site.avgMs != null ? html`<span class="note">· ${t(lang, `report.speed.${speedGrade(site.avgMs)}`)}</span>` : ''}</div></div>
         <div class="fact"><span class="dot ${ssl.cls}"></span><div><b>${t(lang, 'report.sslTitle')}</b>${ssl.text}${ssl.note ? html`<div class="note">${ssl.note}</div>` : ''}</div></div>
         <div class="fact"><span class="dot ${dom.cls}"></span><div><b>${t(lang, 'report.domainTitle')}</b>${dom.text}</div></div>
-        <div class="fact"><span class="dot ${site.security.clean ? 'good' : 'bad'}"></span><div><b>${t(lang, 'report.securityTitle')}</b>${!site.security.checked ? t(lang, 'report.notChecked') : site.security.clean ? t(lang, 'report.security.clean') : t(lang, 'report.security.found', { words: site.security.words })}</div></div>
+        <div class="fact"><span class="dot ${!site.security.checked ? '' : site.security.clean ? 'good' : 'bad'}"></span><div><b>${t(lang, 'report.securityTitle')}</b>${!site.security.checked ? t(lang, 'report.notChecked') : site.security.clean ? t(lang, 'report.security.clean') : t(lang, 'report.security.found', { words: site.security.words })}</div></div>
         <div class="fact"><span class="dot"></span><div><b>${t(lang, 'report.pageSize')}</b>${site.pageBytes != null ? formatBytes(lang, site.pageBytes) : '—'} <span class="note">· ${t(lang, 'report.checksDone', { count: site.checks, n: formatNumber(lang, site.checks) })}</span></div></div>
       </div>
       <h3>${t(lang, 'report.incidentsTitle')}</h3>
@@ -215,7 +215,9 @@ export function renderReportPage({ data, report, lang, pdfAvailable = false }) {
       <div class="kpi"><div class="label">${t(lang, 'report.kpi.uptime')}</div><div class="value">${formatPct(lang, s.uptime)}</div><div class="hint ${uptimeGrade(s.uptime) === 'poor' ? 'bad' : 'good'}">${t(lang, `report.grade.${uptimeGrade(s.uptime)}`)}</div></div>
       <div class="kpi"><div class="label">${t(lang, 'report.kpi.speed')}</div><div class="value">${formatMs(lang, s.avgMs)}</div><div class="hint ${speedGrade(s.avgMs) === 'slow' ? 'warn' : 'good'}">${t(lang, `report.speed.${speedGrade(s.avgMs)}`)}</div></div>
       <div class="kpi"><div class="label">${t(lang, 'report.kpi.incidents')}</div><div class="value">${s.incidents}</div><div class="hint ${s.incidents ? 'warn' : 'good'}">${downText}</div></div>
-      <div class="kpi"><div class="label">${t(lang, 'report.kpi.security')}</div><div class="value ${s.secure ? 'good' : 'bad'}">${s.secure ? '✓' : '!'}</div><div class="hint ${s.secure ? 'good' : 'bad'}">${t(lang, s.secure ? 'report.security.cleanShort' : 'report.security.foundShort')}</div></div>
+      <div class="kpi"><div class="label">${t(lang, 'report.kpi.security')}</div>${s.securityChecked === false && s.secure
+        ? html`<div class="value muted">—</div><div class="hint muted">${t(lang, 'report.notChecked')}</div>`
+        : html`<div class="value ${s.secure ? 'good' : 'bad'}">${s.secure ? '✓' : '!'}</div><div class="hint ${s.secure ? 'good' : 'bad'}">${t(lang, s.secure ? 'report.security.cleanShort' : 'report.security.foundShort')}</div>`}</div>
     </div>
     <p class="lead">${summarySentence(lang, data)}</p>
 

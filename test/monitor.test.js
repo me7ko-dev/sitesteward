@@ -179,6 +179,15 @@ test('domain: warns before expiry; TLDs without RDAP are stored honestly', async
   assert.equal(get(t.db, 'SELECT domain_status FROM sites').domain_status, 'no-rdap');
 });
 
+test('"check now" during a scheduled check does not create duplicate incidents/alerts', async () => {
+  const fail = { ok: false };
+  const t = setup({ results: [fail, fail, fail, fail, fail, fail] });
+  await Promise.all([t.monitor.tick(), t.monitor.checkNow(1), t.monitor.checkNow(1)]);
+  assert.equal(all(t.db, "SELECT * FROM incidents WHERE kind = 'down'").length, 1);
+  assert.equal(t.sent.filter((s) => s.msg.type === 'down').length, 2); // telegram + webhook, once each
+  assert.equal(t.calls.length, 3, 'one check with 2 retries');
+});
+
 test('tick() schedules checks by interval', async () => {
   const t = setup();
   await t.monitor.tick();

@@ -86,6 +86,7 @@ export function buildReportData(db, clientId, period, now = Date.now()) {
       incidents: sites.reduce((a, s) => a + s.incidents.filter((i) => i.kind === 'down').length, 0),
       avgMs: speedSites.length ? Math.round(speedSites.reduce((a, s) => a + s.avgMs, 0) / speedSites.length) : null,
       secure: sites.every((s) => s.security.clean),
+      securityChecked: sites.some((s) => s.security.checked),
     },
     sites,
   };

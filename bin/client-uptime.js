@@ -34,6 +34,8 @@ Options:
   --data <dir>     Where the database is stored    (env DATA_DIR, default ./client-uptime-data)
   --dry-run        Never send e-mails or alerts; only log them (env DRY_RUN=1)
   --trust-proxy    Trust X-Forwarded-* headers from a reverse proxy (env TRUST_PROXY=1)
+  --demo           Start with a fictional agency, clients and 75 days of sample data
+                   (no real checks, nothing is sent; data in ./client-uptime-demo)
   -h, --help       Show this help
 `);
   process.exit(0);
@@ -43,18 +45,26 @@ const { createApp } = await import('../src/app.js');
 
 const port = Number(opt('port', 'PORT', '3000'));
 const host = opt('host', 'HOST', '127.0.0.1');
-const dataDir = opt('data', 'DATA_DIR', './client-uptime-data');
-const dryRun = args.includes('--dry-run') || process.env.DRY_RUN === '1';
+const demo = args.includes('--demo');
+const dataDir = opt('data', 'DATA_DIR', demo ? './client-uptime-demo' : './client-uptime-data');
+const dryRun = demo || args.includes('--dry-run') || process.env.DRY_RUN === '1';
 const trustProxy = args.includes('--trust-proxy') || process.env.TRUST_PROXY === '1';
 
 const app = await createApp({ dataDir, dryRun, trustProxy });
+if (demo) {
+  const { seedDemo } = await import('../src/demo.js');
+  seedDemo(app.db);
+}
 await app.listen(port, host);
-app.monitor.start();
+if (!demo) app.monitor.start();
 
 const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
 console.log(`client-uptime is running → http://${shown}:${port}   (pid ${process.pid})`);
 console.log(`Data directory: ${dataDir}${dryRun ? '   [DRY RUN: nothing is sent]' : ''}`);
-if (app.needsSetup()) {
+if (demo) {
+  const { DEMO_PASSWORD } = await import('../src/demo.js');
+  console.log('DEMO MODE: fictional data, no real checks. Password: ' + DEMO_PASSWORD);
+} else if (app.needsSetup()) {
   console.log('');
   console.log(`First run: open http://${shown}:${port}/setup and enter this setup code: ${app.setupCode}`);
 }

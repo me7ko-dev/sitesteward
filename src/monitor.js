@@ -39,7 +39,7 @@ export function createMonitor({
   const rdapClient = rdap || createRdap({
     cache: { get: () => getKv(db, 'rdapBootstrap'), set: (v) => setKv(db, 'rdapBootstrap', v) },
   });
-  const running = new Set();
+  const running = new Map();
   let active = 0;
   let timer = null;
   let lastMaintenance = 0;
@@ -77,16 +77,18 @@ export function createMonitor({
       r = await httpCheckImpl(site.url, opts);
     }
     const ts = now();
+    // read the state again: it may have changed while this check was waiting on the network
+    const prevState = get(db, 'SELECT state FROM sites WHERE id = ?', site.id)?.state ?? site.state;
     run(db, 'INSERT INTO checks(site_id, ts, ok, status, response_ms, bytes, error) VALUES (?, ?, ?, ?, ?, ?, ?)',
       site.id, ts, r.ok ? 1 : 0, r.status, r.responseMs, r.bytes, r.error);
     run(db, `UPDATE sites SET last_check_at = ?, last_status = ?, last_response_ms = ?, last_bytes = ?, last_error = ?, state = ? WHERE id = ?`,
       ts, r.status, r.responseMs, r.ok ? r.bytes : site.last_bytes, r.error, r.ok ? 'up' : 'down', site.id);
 
-    if (!r.ok && site.state !== 'down') {
+    if (!r.ok && prevState !== 'down') {
       run(db, "INSERT INTO incidents(site_id, kind, started_at, reason, detail) VALUES (?, 'down', ?, ?, ?)",
         site.id, firstAttemptAt, r.errorKind || 'other', r.error || '');
       await alert(site, 'down', 'critical', 'alerts.downTitle', 'alerts.downText', { error: r.error || r.errorKind });
-    } else if (r.ok && site.state === 'down') {
+    } else if (r.ok && prevState === 'down') {
       const inc = openIncident(site.id, 'down');
       if (inc) {
         run(db, 'UPDATE incidents SET ended_at = ? WHERE id = ?', ts, inc.id);
@@ -183,13 +185,21 @@ export function createMonitor({
     return r;
   }
 
-  function launch(key, fn) {
-    if (running.has(key) || active >= concurrency) return null;
-    running.add(key);
+  // One check per site and kind at a time: a manual "check now" joins a running scheduled check
+  // instead of racing it (which could open duplicate incidents).
+  function exclusive(key, fn) {
+    if (running.has(key)) return running.get(key);
     active++;
-    return (async () => {
+    const p = (async () => {
       try { return await fn(); } catch (err) { log.error?.(`[monitor] ${key}: ${err.stack || err}`); return null; } finally { running.delete(key); active--; }
     })();
+    running.set(key, p);
+    return p;
+  }
+
+  function launch(key, fn) {
+    if (running.has(key) || active >= concurrency) return null;
+    return exclusive(key, fn);
   }
 
   function maintenance() {
@@ -220,9 +230,9 @@ export function createMonitor({
   /** Check one site right now (all three checks). */
   async function checkNow(siteId) {
     return {
-      http: await checkHttp(siteId),
-      ssl: await checkSsl(siteId),
-      domain: await checkDomain(siteId),
+      http: await exclusive(`http:${siteId}`, () => checkHttp(siteId)),
+      ssl: await exclusive(`ssl:${siteId}`, () => checkSsl(siteId)),
+      domain: await exclusive(`dom:${siteId}`, () => checkDomain(siteId)),
     };
   }
 

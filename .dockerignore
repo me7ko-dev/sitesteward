@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+data
+client-uptime-data
+client-uptime-demo
+_tmp
+docs
+test
+*.db*
+SESSION_NOTES.md
